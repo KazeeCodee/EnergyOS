@@ -1,0 +1,12 @@
+{
+  "mem_mix": [
+    { "name": "Termica", "value": 54 },
+    { "name": "Hidraulica", "value": 19 },
+    { "name": "Renovable", "value": 18 },
+    { "name": "Nuclear", "value": 9 }
+  ],
+  "mater_spot": [
+    { "name": "MATER", "value": 80 },
+    { "name": "SPOT", "value": 20 }
+  ]
+}

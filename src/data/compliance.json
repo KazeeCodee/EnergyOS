@@ -1,0 +1,14 @@
+[
+  { "mes": "Nov 2024", "demanda_mwh": 349, "mater_mwh": 279, "spot_mwh": 70, "porcentaje_renovable": 24, "acuerdo_mes_mwh": 300, "cumple": true, "alerta": false },
+  { "mes": "Dic 2024", "demanda_mwh": 124, "mater_mwh": 99, "spot_mwh": 25, "porcentaje_renovable": 24, "acuerdo_mes_mwh": 300, "cumple": true, "alerta": false },
+  { "mes": "Ene 2025", "demanda_mwh": 119, "mater_mwh": 95, "spot_mwh": 24, "porcentaje_renovable": 24, "acuerdo_mes_mwh": 300, "cumple": true, "alerta": false },
+  { "mes": "Feb 2025", "demanda_mwh": 329, "mater_mwh": 263, "spot_mwh": 66, "porcentaje_renovable": 24, "acuerdo_mes_mwh": 300, "cumple": true, "alerta": false },
+  { "mes": "Mar 2025", "demanda_mwh": 350, "mater_mwh": 280, "spot_mwh": 70, "porcentaje_renovable": 24, "acuerdo_mes_mwh": 300, "cumple": true, "alerta": false },
+  { "mes": "Abr 2025", "demanda_mwh": 143, "mater_mwh": 114, "spot_mwh": 29, "porcentaje_renovable": 24, "acuerdo_mes_mwh": 300, "cumple": true, "alerta": false },
+  { "mes": "May 2025", "demanda_mwh": 180, "mater_mwh": 144, "spot_mwh": 36, "porcentaje_renovable": 24, "acuerdo_mes_mwh": 300, "cumple": true, "alerta": false },
+  { "mes": "Jun 2025", "demanda_mwh": 305, "mater_mwh": 244, "spot_mwh": 61, "porcentaje_renovable": 24, "acuerdo_mes_mwh": 300, "cumple": true, "alerta": false },
+  { "mes": "Jul 2025", "demanda_mwh": 161, "mater_mwh": 129, "spot_mwh": 32, "porcentaje_renovable": 24, "acuerdo_mes_mwh": 300, "cumple": true, "alerta": false },
+  { "mes": "Ago 2025", "demanda_mwh": 347, "mater_mwh": 278, "spot_mwh": 69, "porcentaje_renovable": 24, "acuerdo_mes_mwh": 300, "cumple": true, "alerta": false },
+  { "mes": "Sep 2025", "demanda_mwh": 341, "mater_mwh": 273, "spot_mwh": 68, "porcentaje_renovable": 24, "acuerdo_mes_mwh": 300, "cumple": true, "alerta": false },
+  { "mes": "Oct 2025", "demanda_mwh": 374, "mater_mwh": 299, "spot_mwh": 75, "porcentaje_renovable": 24, "acuerdo_mes_mwh": 300, "cumple": true, "alerta": false }
+]
