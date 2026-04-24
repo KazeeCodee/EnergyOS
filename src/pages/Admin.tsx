@@ -1,5 +1,10 @@
 import {
+  ChevronDown,
+  ChevronUp,
   Building2,
+  Clock3,
+  Download,
+  FileText,
   FileSpreadsheet,
   Play,
   Plus,
@@ -15,14 +20,16 @@ import { LoadingScreen } from "../components/ui/LoadingScreen";
 import { Panel } from "../components/ui/Panel";
 import { StatCard } from "../components/ui/StatCard";
 import { useAsyncData } from "../hooks/useAsyncData";
+import { supabase } from "../lib/supabase";
 import {
   createEmpresaCliente,
   createProcesamiento,
   isCurrentUserAdmin,
   loadAdminDashboard,
+  triggerProcesamiento,
   uploadCammesaFile,
 } from "../services/adminData";
-import type { AdminArchivo, AdminEmpresaRow, AdminProcesamiento, AdminStats, PlanId } from "../types";
+import type { AdminArchivo, AdminEmpresaRow, AdminProcesamiento, AdminStats } from "../types";
 import { number, percent } from "../utils/format";
 
 const emptyStats: AdminStats = {
@@ -54,7 +61,6 @@ type ClientForm = {
   tipo_usuario: "GUMA" | "GUME" | "GUDI";
   comercializador: string;
   distribuidor: string;
-  plan_activo: PlanId;
   acuerdo_mensual_mwh: string;
   nemos: string;
   numero_contrato: string;
@@ -75,7 +81,6 @@ const initialClientForm: ClientForm = {
   tipo_usuario: "GUME",
   comercializador: "",
   distribuidor: "",
-  plan_activo: "compliance",
   acuerdo_mensual_mwh: "300",
   nemos: "",
   numero_contrato: "",
@@ -123,6 +128,11 @@ export default function Admin() {
   const [clientForm, setClientForm] = useState<ClientForm>(initialClientForm);
   const [clientStatus, setClientStatus] = useState("");
   const [fileStatus, setFileStatus] = useState("");
+  const [downloadStatus, setDownloadStatus] = useState("");
+  const [downloadingCammesa, setDownloadingCammesa] = useState(false);
+  const [processingStatus, setProcessingStatus] = useState("");
+  const [processingActionId, setProcessingActionId] = useState("");
+  const [expandedProcessingId, setExpandedProcessingId] = useState<string | null>(null);
   const [period, setPeriod] = useState({ anio: 2025, mes: 10 });
   const [dteFile, setDteFile] = useState<File | null>(null);
   const [variablesFile, setVariablesFile] = useState<File | null>(null);
@@ -164,7 +174,7 @@ export default function Admin() {
         tipo_usuario: clientForm.tipo_usuario,
         comercializador: clientForm.comercializador || undefined,
         distribuidor: clientForm.distribuidor || undefined,
-        plan_activo: clientForm.plan_activo,
+        plan_activo: "compliance",
         acuerdo_mensual_mwh: Number(clientForm.acuerdo_mensual_mwh),
         nemos: clientForm.nemos.split(",").map((nemo) => nemo.trim()).filter(Boolean),
         contratos,
@@ -201,6 +211,42 @@ export default function Admin() {
       refresh();
     } catch (caught) {
       setFileStatus(caught instanceof Error ? caught.message : "No se pudieron cargar los archivos.");
+    }
+  };
+
+  const runProcessing = async (item: AdminProcesamiento) => {
+    setProcessingActionId(item.id);
+    setProcessingStatus(`Disparando procesamiento ${monthLabel(item.anio, item.mes)}...`);
+    try {
+      const result = await triggerProcesamiento(item.id);
+      setProcessingStatus(result.message);
+      refresh();
+    } catch (caught) {
+      setProcessingStatus(caught instanceof Error ? caught.message : "No se pudo disparar el procesamiento.");
+    } finally {
+      setProcessingActionId("");
+    }
+  };
+
+  const downloadCammesa = async () => {
+    setDownloadingCammesa(true);
+    setDownloadStatus("Descargando...");
+    try {
+      const { data, error } = await supabase.functions.invoke("download-cammesa-dte", {
+        body: { anio: period.anio, mes: period.mes },
+      });
+      if (error) throw error;
+      setDownloadStatus("Procesando...");
+      refresh();
+      await new Promise((resolve) => window.setTimeout(resolve, 300));
+      setDownloadStatus("Listo");
+      if (typeof data?.message === "string") {
+        setFileStatus(data.message);
+      }
+    } catch (caught) {
+      setDownloadStatus(caught instanceof Error ? caught.message : "No se pudo descargar desde CAMMESA.");
+    } finally {
+      setDownloadingCammesa(false);
     }
   };
 
@@ -252,7 +298,6 @@ export default function Admin() {
               <thead className="bg-navy/55 text-xs uppercase text-mist">
                 <tr>
                   <th className="px-5 py-3">Empresa</th>
-                  <th className="px-5 py-3">Plan</th>
                   <th className="px-5 py-3">Nemos</th>
                   <th className="px-5 py-3">Ultimo dato</th>
                   <th className="px-5 py-3">Renovable</th>
@@ -265,7 +310,6 @@ export default function Admin() {
                       <p className="font-medium text-ivory">{empresa.razon_social}</p>
                       <p className="text-xs">{empresa.tipo_usuario} · {empresa.comercializador}</p>
                     </td>
-                    <td className="px-5 py-3"><Badge tone="plan">{empresa.plan_activo}</Badge></td>
                     <td className="px-5 py-3">{empresa.nemos.join(", ")}</td>
                     <td className="px-5 py-3">{empresa.ultimo_mes}</td>
                     <td className="number px-5 py-3">{percent(empresa.porcentaje_renovable)}</td>
@@ -290,7 +334,7 @@ export default function Admin() {
             <Input label="Razón social" onChange={(value) => updateClient("razon_social", value)} required value={clientForm.razon_social} />
             <div className="grid gap-3 sm:grid-cols-2">
               <Select label="Tipo" onChange={(value) => updateClient("tipo_usuario", value as ClientForm["tipo_usuario"])} options={["GUMA", "GUME", "GUDI"]} value={clientForm.tipo_usuario} />
-              <Select label="Plan" onChange={(value) => updateClient("plan_activo", value as PlanId)} options={["compliance", "gestion", "full", "white-label"]} value={clientForm.plan_activo} />
+              <Input label="CUIT" onChange={(value) => updateClient("cuit", value)} value={clientForm.cuit} />
             </div>
             <Input label="Nemos separados por coma" onChange={(value) => updateClient("nemos", value)} required value={clientForm.nemos} />
             <div className="grid gap-3 sm:grid-cols-2">
@@ -336,10 +380,23 @@ export default function Admin() {
             <FileInput file={dteFile} label="DTE .xlsx" onChange={setDteFile} />
             <FileInput file={variablesFile} label="Variables Relevantes .xlsx/.zip" onChange={setVariablesFile} />
             {fileStatus ? <p className="text-sm text-mist">{fileStatus}</p> : null}
-            <Button className="w-full" type="submit">
-              <Play size={16} />
-              Crear corrida pendiente
-            </Button>
+            {downloadStatus ? <p className="text-sm text-mist">{downloadStatus}</p> : null}
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Button className="w-full" type="submit">
+                <Play size={16} />
+                Crear corrida pendiente
+              </Button>
+              <Button
+                className="w-full"
+                disabled={downloadingCammesa}
+                onClick={downloadCammesa}
+                type="button"
+                variant="outline"
+              >
+                <Download size={16} />
+                Descargar de CAMMESA
+              </Button>
+            </div>
           </form>
         </Panel>
 
@@ -347,20 +404,136 @@ export default function Admin() {
           <div className="flex items-center justify-between gap-3 border-b border-navy-border p-5">
             <div>
               <h3 className="font-syne text-base font-bold text-ivory">Procesamientos</h3>
-              <p className="mt-1 text-sm text-mist">Historial operativo</p>
+              <p className="mt-1 text-sm text-mist">Historial operativo con detalle por corrida</p>
             </div>
             <FileSpreadsheet className="text-forest" size={20} />
           </div>
+          {processingStatus ? (
+            <div className="border-b border-navy-border bg-navy/45 px-5 py-3 text-sm text-mist">{processingStatus}</div>
+          ) : null}
           <div className="divide-y divide-navy-border">
             {procesamientos.map((item) => (
-              <div className="flex flex-wrap items-center justify-between gap-3 p-5" key={item.id}>
-                <div>
-                  <p className="font-medium text-ivory">{monthLabel(item.anio, item.mes)}</p>
-                  <p className="text-xs text-mist">{new Date(item.created_at).toLocaleString()}</p>
+              <div className="p-5" key={item.id}>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="font-medium text-ivory">{monthLabel(item.anio, item.mes)}</p>
+                    <p className="text-xs text-mist">{new Date(item.created_at).toLocaleString()}</p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge tone={processingTone(item.estado)}>
+                      {item.estado}
+                    </Badge>
+                    <Button
+                      disabled={processingActionId === item.id || item.estado === "procesando"}
+                      onClick={() => runProcessing(item)}
+                      variant="outline"
+                    >
+                      <Play size={16} />
+                      Procesar ahora
+                    </Button>
+                    <Button
+                      aria-expanded={expandedProcessingId === item.id}
+                      onClick={() => setExpandedProcessingId((current) => (current === item.id ? null : item.id))}
+                      variant="ghost"
+                    >
+                      {expandedProcessingId === item.id ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                      Detalle
+                    </Button>
+                  </div>
                 </div>
-                <Badge tone={item.estado === "completo" ? "success" : item.estado === "error" ? "warning" : "neutral"}>
-                  {item.estado}
-                </Badge>
+
+                {expandedProcessingId === item.id ? (
+                  <div className="mt-4 grid gap-4 border-t border-navy-border pt-4">
+                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                      <Metric label="Procesadas" value={String(getProcessMetrics(item).procesadas)} />
+                      <Metric label="Sin datos" value={String(getProcessMetrics(item).sinDatos)} />
+                      <Metric label="Sin NEMO" value={String(getProcessMetrics(item).sinNemo)} />
+                      <Metric label="Errores" value={String(getProcessMetrics(item).errores)} />
+                      <Metric label="MWh totales" value={number(getProcessMetrics(item).totalMwh)} />
+                    </div>
+
+                    <div className="grid gap-4 lg:grid-cols-[0.95fr_1.05fr]">
+                      <div className="space-y-3 rounded border border-navy-border bg-navy/45 p-4">
+                        <div className="flex items-center gap-2 text-ivory">
+                          <Clock3 size={16} />
+                          <p className="text-sm font-medium">Operacion</p>
+                        </div>
+                        <MetaRow label="Creada" value={formatDate(item.created_at)} />
+                        <MetaRow label="Iniciada" value={formatDate(item.started_at)} />
+                        <MetaRow label="Finalizada" value={formatDate(item.completed_at)} />
+                        <MetaRow label="DTE" value={item.dte_archivo?.file_name ?? "No asociado"} />
+                        <MetaRow
+                          label="Variables"
+                          value={item.variables_archivo?.file_name ?? "No asociado"}
+                        />
+                        {item.error_message ? (
+                          <div className="rounded border border-alert/35 bg-alert/10 px-3 py-2 text-sm text-alert">
+                            {item.error_message}
+                          </div>
+                        ) : null}
+                      </div>
+
+                      <div className="space-y-3 rounded border border-navy-border bg-navy/45 p-4">
+                        <div className="flex items-center gap-2 text-ivory">
+                          <FileText size={16} />
+                          <p className="text-sm font-medium">Resumen y logs</p>
+                        </div>
+                        <ProcessSummary resumen={item.resumen} />
+                        {typeof item.resumen.log_url === "string" ? (
+                          <a
+                            className="inline-flex items-center gap-2 text-sm text-forest underline-offset-2 hover:underline"
+                            href={item.resumen.log_url}
+                            rel="noreferrer"
+                            target="_blank"
+                          >
+                            <FileText size={14} />
+                            Ver log
+                          </a>
+                        ) : (
+                          <p className="text-xs text-mist">
+                            Logs persistidos no disponibles todavia. Se muestra el resumen operativo guardado.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="overflow-x-auto rounded border border-navy-border">
+                      <table className="min-w-full text-left text-sm">
+                        <thead className="bg-navy/55 text-xs uppercase text-mist">
+                          <tr>
+                            <th className="px-4 py-3">Empresa</th>
+                            <th className="px-4 py-3">Estado</th>
+                            <th className="px-4 py-3">Demanda</th>
+                            <th className="px-4 py-3">MATER</th>
+                            <th className="px-4 py-3">Spot</th>
+                            <th className="px-4 py-3">Mensaje</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-navy-border">
+                          {item.empresas.map((empresa) => (
+                            <tr key={empresa.id}>
+                              <td className="px-4 py-3 text-ivory">{empresa.empresa_nombre}</td>
+                              <td className="px-4 py-3">
+                                <Badge tone={processingTone(empresa.estado)}>{empresa.estado}</Badge>
+                              </td>
+                              <td className="number px-4 py-3 text-mist">{number(empresa.demanda_total_mwh, 2)}</td>
+                              <td className="number px-4 py-3 text-mist">{number(empresa.mater_mwh, 2)}</td>
+                              <td className="number px-4 py-3 text-mist">{number(empresa.spot_mwh, 2)}</td>
+                              <td className="px-4 py-3 text-mist">{empresa.mensaje ?? "-"}</td>
+                            </tr>
+                          ))}
+                          {item.empresas.length === 0 ? (
+                            <tr>
+                              <td className="px-4 py-4 text-mist" colSpan={6}>
+                                Todavia no hay detalle por empresa para esta corrida.
+                              </td>
+                            </tr>
+                          ) : null}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : null}
               </div>
             ))}
             {procesamientos.length === 0 ? <p className="p-5 text-sm text-mist">Sin corridas registradas.</p> : null}
@@ -387,6 +560,69 @@ export default function Admin() {
       </Panel>
     </div>
   );
+}
+
+function processingTone(estado: "pendiente" | "procesando" | "completo" | "error" | "sin_datos") {
+  if (estado === "completo") return "success";
+  if (estado === "error") return "warning";
+  return "neutral";
+}
+
+function formatDate(value: string | null) {
+  return value ? new Date(value).toLocaleString() : "-";
+}
+
+function getProcessMetrics(item: AdminProcesamiento) {
+  const procesadas = item.empresas.filter((empresa) => empresa.estado === "completo").length;
+  const sinDatos = item.empresas.filter((empresa) => empresa.estado === "sin_datos").length;
+  const sinNemo = item.empresas.filter((empresa) =>
+    (empresa.mensaje ?? "").toLowerCase().includes("no se encontraron"),
+  ).length;
+  const errores = item.empresas.filter((empresa) => empresa.estado === "error").length + (item.error_message ? 1 : 0);
+  const totalMwh = item.empresas.reduce((sum, empresa) => sum + empresa.demanda_total_mwh, 0);
+  return { procesadas, sinDatos, sinNemo, errores, totalMwh };
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded border border-navy-border bg-navy/45 px-3 py-3">
+      <p className="text-[11px] uppercase text-mist">{label}</p>
+      <p className="mt-1 font-syne text-lg font-bold text-ivory">{value}</p>
+    </div>
+  );
+}
+
+function MetaRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-start justify-between gap-3 text-sm">
+      <span className="text-mist">{label}</span>
+      <span className="text-right text-ivory">{value}</span>
+    </div>
+  );
+}
+
+function ProcessSummary({ resumen }: { resumen: Record<string, unknown> }) {
+  const entries = Object.entries(resumen).filter(([, value]) => value != null && value !== "");
+  if (!entries.length) {
+    return <p className="text-sm text-mist">Sin resumen persistido para esta corrida.</p>;
+  }
+
+  return (
+    <div className="space-y-2">
+      {entries.map(([key, value]) => (
+        <div className="flex items-start justify-between gap-3 text-sm" key={key}>
+          <span className="text-mist">{humanizeKey(key)}</span>
+          <span className="max-w-[60%] text-right text-ivory">{String(value)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function humanizeKey(value: string) {
+  return value
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function Input({

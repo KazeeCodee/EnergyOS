@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "import:cammesa": "node ./scripts/import-cammesa-csvs.mjs"
   },
   "devDependencies": {
     "@types/react": "^19.2.14",

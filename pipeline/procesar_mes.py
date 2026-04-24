@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import sys
+import zipfile
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -22,23 +23,46 @@ DTE_COL_SALDO_TOTAL = 25
 
 ACTIVE_PLANS = ("compliance", "gestion", "full", "white-label")
 MATER_TYPES = ("RPB", "RPE")
-DEFAULT_CARGOS_ADICIONALES_PCT = 0.025
 
 
 @dataclass(frozen=True)
 class MercadoMes:
-    generacion_total_gwh: float
-    generacion_mater_gwh: float
-    mix_termica_pct: float
-    mix_hidraulica_pct: float
-    mix_nuclear_pct: float
-    mix_renovable_pct: float
-    precio_spot_usd_mwh: float
-    costo_renovable_usd_mwh: float
-    costo_cammesa_usd_mwh: float
-    precio_potencia_usd_mw_mes: float
-    cargo_transporte_usd_mwh: float
-    precio_gasoil_importado_usd_mwh: float
+    generacion_total_gwh: float | None = None
+    generacion_mater_gwh: float | None = None
+    mix_termica_pct: float | None = None
+    mix_hidraulica_pct: float | None = None
+    mix_nuclear_pct: float | None = None
+    mix_renovable_pct: float | None = None
+    precio_spot_usd_mwh: float | None = None
+    costo_renovable_usd_mwh: float | None = None
+    costo_cammesa_usd_mwh: float | None = None
+    precio_potencia_usd_mw_mes: float | None = None
+    cargo_transporte_usd_mwh: float | None = None
+    precio_gasoil_importado_usd_mwh: float | None = None
+    precio_spot_pico_pesos_mwh: float | None = None
+    precio_spot_valle_pesos_mwh: float | None = None
+    precio_spot_resto_pesos_mwh: float | None = None
+    cargo_transporte_pesos_mwh: float | None = None
+
+
+@dataclass(frozen=True)
+class EmpresaCammesaData:
+    nemo: str
+    demanda_total_mwh: float
+    mater_mwh: float
+    spot_mwh: float
+    importe_mater_pesos: float
+
+
+@dataclass(frozen=True)
+class ParsedCammesaZip:
+    empresas: dict[str, EmpresaCammesaData]
+    total_mater_mwh: float
+    total_importe_mater_pesos: float
+    precio_spot_pico_pesos_mwh: float | None
+    precio_spot_valle_pesos_mwh: float | None
+    precio_spot_resto_pesos_mwh: float | None
+    cargo_transporte_pesos_mwh: float | None
 
 
 def normalize(value: Any) -> str:
@@ -50,6 +74,12 @@ def normalize(value: Any) -> str:
         "ó": "o",
         "ú": "u",
         "ñ": "n",
+        "Ã¡": "a",
+        "Ã©": "e",
+        "Ã­": "i",
+        "Ã³": "o",
+        "Ãº": "u",
+        "Ã±": "n",
         "\n": " ",
         "\r": " ",
     }
@@ -63,18 +93,41 @@ def to_float(value: Any, default: float = 0.0) -> float:
         return default
     if isinstance(value, (int, float)):
         return float(value)
+
     text = str(value).strip()
     if not text:
         return default
-    text = text.replace("%", "").replace("USD", "").replace("usd", "").strip()
+
+    text = (
+        text.replace("%", "")
+        .replace("USD", "")
+        .replace("usd", "")
+        .replace("$", "")
+        .replace("(", "")
+        .replace(")", "")
+        .strip()
+    )
+    text = re.sub(r"\s+", "", text)
+    if not text:
+        return default
+
     if "," in text and "." in text:
-        text = text.replace(".", "").replace(",", ".")
-    else:
+        if text.rfind(",") > text.rfind("."):
+            text = text.replace(".", "").replace(",", ".")
+        else:
+            text = text.replace(",", "")
+    elif "," in text:
         text = text.replace(",", ".")
+
     try:
         return float(text)
     except ValueError:
         return default
+
+
+def average(*values: float | None) -> float:
+    valid = [float(value) for value in values if value is not None]
+    return sum(valid) / len(valid) if valid else 0.0
 
 
 def get_required_env(name: str) -> str:
@@ -92,55 +145,241 @@ def setup_logging(anio: int, mes: int) -> None:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(message)s",
         handlers=[logging.StreamHandler(sys.stdout), logging.FileHandler(log_path, encoding="utf-8")],
+        force=True,
     )
 
 
 def infer_period_from_filename(path: Path) -> tuple[int | None, int | None]:
-    months = {
-        "ene": 1,
-        "enero": 1,
-        "feb": 2,
-        "febrero": 2,
-        "mar": 3,
-        "marzo": 3,
-        "abr": 4,
-        "abril": 4,
-        "may": 5,
-        "mayo": 5,
-        "jun": 6,
-        "junio": 6,
-        "jul": 7,
-        "julio": 7,
-        "ago": 8,
-        "agosto": 8,
-        "sep": 9,
-        "septiembre": 9,
-        "oct": 10,
-        "octubre": 10,
-        "nov": 11,
-        "noviembre": 11,
-        "dic": 12,
-        "diciembre": 12,
-    }
-    name = normalize(path.stem)
+    name = path.stem.upper()
+
+    yymm_match = re.search(r"(?:DTE|AMAT|AGUM|ATRA)?(\d{2})(\d{2})", name)
+    if yymm_match:
+        return 2000 + int(yymm_match.group(1)), int(yymm_match.group(2))
+
     year_match = re.search(r"(20\d{2})", name)
-    year = int(year_match.group(1)) if year_match else None
-    month = None
-    numeric_month = re.search(r"(?:^|[_\-\s])(0?[1-9]|1[0-2])(?:[_\-\s]|$)", name)
-    if numeric_month:
-        month = int(numeric_month.group(1))
-    else:
-        for label, value in months.items():
-            if re.search(rf"\b{label}\b", name):
-                month = value
-                break
-    return year, month
+    month_match = re.search(r"(?:^|[_\-\s])(0?[1-9]|1[0-2])(?:[_\-\s]|$)", name)
+    if year_match and month_match:
+        return int(year_match.group(1)), int(month_match.group(1))
+
+    return None, None
 
 
-def parse_dte_mate(dte_path: Path) -> pd.DataFrame:
-    xls = pd.ExcelFile(dte_path)
+def decode_text(raw: bytes) -> str:
+    for encoding in ("utf-8-sig", "latin-1", "cp1252"):
+        try:
+            return raw.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    return raw.decode("utf-8", errors="replace")
+
+
+def find_cammesa_members(zip_path: Path) -> dict[str, str]:
+    members: dict[str, str] = {}
+    with zipfile.ZipFile(zip_path) as archive:
+        for name in archive.namelist():
+            base = Path(name).name.upper()
+            if base.startswith("AMAT") and base.endswith(".TXT"):
+                members["AMAT"] = name
+            elif base.startswith("AGUM") and base.endswith(".TXT"):
+                members["AGUM"] = name
+            elif base.startswith("ATRA") and base.endswith(".TXT"):
+                members["ATRA"] = name
+    return members
+
+
+def is_cammesa_txt_zip(path: Path) -> bool:
+    if path.suffix.lower() != ".zip":
+        return False
+    members = find_cammesa_members(path)
+    return all(key in members for key in ("AMAT", "AGUM", "ATRA"))
+
+
+def read_cammesa_member(zip_path: Path, member: str) -> str:
+    members = find_cammesa_members(zip_path)
+    if member not in members:
+        raise ValueError(f"No encontré {member} dentro de {zip_path.name}")
+    with zipfile.ZipFile(zip_path) as archive:
+        return decode_text(archive.read(members[member]))
+
+
+def parse_amat_text(text: str) -> tuple[dict[str, tuple[float, float]], float, float]:
+    by_nemo: dict[str, tuple[float, float]] = {}
+    total_mwh = 0.0
+    total_importe = 0.0
+
+    for raw_line in text.splitlines():
+        line = raw_line.rstrip()
+        if not line.strip():
+            continue
+        parts = re.split(r"\s{2,}", line.strip())
+        if len(parts) < 6:
+            continue
+
+        demandante = parts[2].strip().upper()
+        mater_mwh = to_float(parts[-2], default=float("nan"))
+        importe_pesos = to_float(parts[-1], default=float("nan"))
+        if pd.isna(mater_mwh) or pd.isna(importe_pesos) or not re.fullmatch(r"[A-Z0-9]{8}", demandante):
+            continue
+
+        current_mwh, current_importe = by_nemo.get(demandante, (0.0, 0.0))
+        by_nemo[demandante] = (current_mwh + float(mater_mwh), current_importe + float(importe_pesos))
+        total_mwh += float(mater_mwh)
+        total_importe += float(importe_pesos)
+
+    return by_nemo, total_mwh, total_importe
+
+
+def parse_agum_text(text: str) -> tuple[dict[str, float], dict[str, float], dict[str, float | None]]:
+    demanda_by_nemo: dict[str, float] = {}
+    spot_by_nemo: dict[str, float] = {}
+    precios: dict[str, float | None] = {"pico": None, "valle": None, "resto": None}
+    reading_spot_header = False
+    current_section: str | None = None
+
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        section_match = re.search(r"\b(A4(?:\.\d+)+)\b", raw_line.upper())
+        if section_match:
+            current_section = section_match.group(1)
+
+        normalized = normalize(line)
+        if "precio energia spot" in normalized:
+            reading_spot_header = True
+            continue
+
+        if reading_spot_header:
+            match = re.match(
+                r"^\s*(Pico|Valle|Resto)\s+\(\$/MWh\):\s*([0-9][0-9\s.,]*?)(?:\s{2,}|$)",
+                raw_line,
+                flags=re.IGNORECASE,
+            )
+            if match:
+                tramo = normalize(match.group(1))
+                precios[tramo] = to_float(match.group(2), default=0.0)
+                continue
+            if all(value is not None for value in precios.values()):
+                reading_spot_header = False
+
+        # Las filas con sangria son subtotales/resumenes y no representan detalle por contrato.
+        if raw_line[:1].isspace():
+            continue
+
+        if current_section == "A4.3.4.1":
+            match = re.match(
+                r"^([A-Z0-9]{8})\s+([A-Z0-9]{8})(?:\s+([A-Z0-9]{8}))?\s{2,}(.*)$",
+                raw_line.rstrip(),
+            )
+            if not match:
+                continue
+
+            nemo = match.group(1).strip().upper()
+            generador = (match.group(3) or "").strip().upper()
+            numeric_part = match.group(4)
+
+            value_tokens = re.split(r"\s+", numeric_part.strip())
+            if len(value_tokens) < 4:
+                continue
+
+            # En A4.3.4.1 el campo 4 es la energia del bloque. Si no hay generador es SPOT/MEM.
+            demanda_total = to_float(value_tokens[3], default=float("nan"))
+            if pd.isna(demanda_total):
+                continue
+
+            demanda_by_nemo[nemo] = demanda_by_nemo.get(nemo, 0.0) + float(demanda_total)
+            if not generador:
+                spot_by_nemo[nemo] = spot_by_nemo.get(nemo, 0.0) + float(demanda_total)
+            continue
+
+        if current_section == "A4.1":
+            match = re.match(
+                r"^([A-Z0-9]{8})\s+([A-Z0-9]{8})\s{2,}(.*)$",
+                raw_line.rstrip(),
+            )
+            if not match:
+                continue
+
+            nemo = match.group(1).strip().upper()
+            numeric_part = match.group(3)
+            value_tokens = re.split(r"\s{2,}", numeric_part.strip())
+            if len(value_tokens) < 3:
+                continue
+
+            # En A4.1 las primeras tres columnas numericas son pico/valle/resto de la demanda real.
+            demanda_componentes = [to_float(token, default=float("nan")) for token in value_tokens[:3]]
+            if any(pd.isna(value) for value in demanda_componentes):
+                continue
+
+            demanda_total = float(sum(demanda_componentes))
+            spot_total = to_float(value_tokens[2], default=float("nan"))
+            if pd.isna(spot_total):
+                continue
+
+            demanda_by_nemo[nemo] = demanda_by_nemo.get(nemo, 0.0) + demanda_total
+            spot_by_nemo[nemo] = spot_by_nemo.get(nemo, 0.0) + float(spot_total)
+
+    return demanda_by_nemo, spot_by_nemo, precios
+
+
+def parse_atra_text(text: str) -> float | None:
+    for raw_line in text.splitlines():
+        if "Precio Mensual de Transporte en Alta Tensión" not in raw_line:
+            continue
+        match = re.search(r":\s*([0-9][0-9\s.,]*)$", raw_line.strip())
+        if match:
+            return to_float(match.group(1), default=0.0)
+    return None
+
+
+def parse_cammesa_zip(zip_path: Path) -> ParsedCammesaZip:
+    amat_text = read_cammesa_member(zip_path, "AMAT")
+    agum_text = read_cammesa_member(zip_path, "AGUM")
+    atra_text = read_cammesa_member(zip_path, "ATRA")
+
+    amat_by_nemo, total_mater_mwh, total_importe = parse_amat_text(amat_text)
+    demanda_by_nemo, spot_by_nemo, precios_spot = parse_agum_text(agum_text)
+    cargo_transporte = parse_atra_text(atra_text)
+
+    nemos = set(amat_by_nemo) | set(demanda_by_nemo)
+    empresas: dict[str, EmpresaCammesaData] = {}
+    for nemo in nemos:
+        mater_mwh, importe_mater_pesos = amat_by_nemo.get(nemo, (0.0, 0.0))
+        spot_total = spot_by_nemo.get(nemo, 0.0)
+        demanda_total = max(demanda_by_nemo.get(nemo, 0.0), spot_total + mater_mwh)
+        empresas[nemo] = EmpresaCammesaData(
+            nemo=nemo,
+            demanda_total_mwh=demanda_total,
+            mater_mwh=mater_mwh,
+            spot_mwh=spot_total,
+            importe_mater_pesos=importe_mater_pesos,
+        )
+
+    logging.info(
+        "ZIP CAMMESA parseado: %s Nemos, MATER total %.2f MWh, importe total %.2f pesos",
+        len(empresas),
+        total_mater_mwh,
+        total_importe,
+    )
+    return ParsedCammesaZip(
+        empresas=empresas,
+        total_mater_mwh=total_mater_mwh,
+        total_importe_mater_pesos=total_importe,
+        precio_spot_pico_pesos_mwh=precios_spot["pico"],
+        precio_spot_valle_pesos_mwh=precios_spot["valle"],
+        precio_spot_resto_pesos_mwh=precios_spot["resto"],
+        cargo_transporte_pesos_mwh=cargo_transporte,
+    )
+
+
+def parse_dte_mate(path: Path) -> pd.DataFrame | ParsedCammesaZip:
+    if is_cammesa_txt_zip(path):
+        return parse_cammesa_zip(path)
+
+    xls = pd.ExcelFile(path)
     sheet_name = next((name for name in xls.sheet_names if "mate" in normalize(name)), xls.sheet_names[0])
-    raw = pd.read_excel(dte_path, sheet_name=sheet_name, header=None, engine="openpyxl")
+    raw = pd.read_excel(path, sheet_name=sheet_name, header=None, engine="openpyxl")
     required_cols = [DTE_COL_NEMO, DTE_COL_TIPO, DTE_COL_DEM_ABASTECIDA_TOTAL, DTE_COL_SALDO_TOTAL]
     for col in required_cols:
         if col not in raw.columns:
@@ -156,7 +395,7 @@ def parse_dte_mate(dte_path: Path) -> pd.DataFrame:
         }
     )
     data = data[data["nemo"].str.fullmatch(r"[A-Z0-9]{8}", na=False)]
-    logging.info("DTE MATE parseado desde hoja '%s': %s filas utiles", sheet_name, len(data))
+    logging.info("DTE legacy parseado desde hoja '%s': %s filas utiles", sheet_name, len(data))
     return data
 
 
@@ -218,10 +457,10 @@ def extract_mercado_from_variables_relevantes(path: Path, anio: int, mes: int) -
         return None
 
     row = matches.iloc[-1]
-    generacion_termica = get_column_value(row, "Generación Térmica") or 0.0
-    generacion_nuclear = get_column_value(row, "Generación Nuclear") or 0.0
+    generacion_termica = get_column_value(row, "GeneraciÃ³n TÃ©rmica") or 0.0
+    generacion_nuclear = get_column_value(row, "GeneraciÃ³n Nuclear") or 0.0
     hidraulica_mayor_50 = get_column_value(row, "Renovable HIDRO > 50") or 0.0
-    renovable_ley = get_column_value(row, "Generación Renovable Según Ley 26 190") or 0.0
+    renovable_ley = get_column_value(row, "GeneraciÃ³n Renovable SegÃºn Ley 26 190") or 0.0
     mix_total = generacion_termica + generacion_nuclear + hidraulica_mayor_50 + renovable_ley
     if mix_total <= 0:
         mix_total = get_column_value(row, "Oferta Total") or 0.0
@@ -230,11 +469,11 @@ def extract_mercado_from_variables_relevantes(path: Path, anio: int, mes: int) -
         return value / mix_total * 100 if mix_total else 0.0
 
     generacion_mater = (
-        get_column_value(row, "GRAN DEMANDA MEM (estimación GU mercado a término/contrato entre privados y acuerdos especiales)")
+        get_column_value(row, "GRAN DEMANDA MEM (estimaciÃ³n GU mercado a tÃ©rmino/contrato entre privados y acuerdos especiales)")
         or 0.0
     )
     precio_spot = get_column_value(row, "GRAN DEMANDA MEM (a precio SPOT).1")
-    costo_renovable = get_column_value(row, "GRAN DEMANDA MEM (*) Mercado a término o contrato entre privados")
+    costo_renovable = get_column_value(row, "GRAN DEMANDA MEM (*) Mercado a tÃ©rmino o contrato entre privados")
     costo_cammesa = get_column_value(row, "MONOMICO TOTAL (LOCAL).1")
     cargo_transporte = get_column_value(row, "Transporte") or 0.0
 
@@ -275,7 +514,33 @@ def candidate_tables_from_excel(path: Path) -> list[pd.DataFrame]:
     return tables
 
 
+def extract_mercado_from_cammesa_zip(path: Path) -> MercadoMes:
+    parsed = parse_cammesa_zip(path)
+    precio_spot_promedio = average(
+        parsed.precio_spot_pico_pesos_mwh,
+        parsed.precio_spot_valle_pesos_mwh,
+        parsed.precio_spot_resto_pesos_mwh,
+    )
+    precio_mater_promedio = (
+        parsed.total_importe_mater_pesos / parsed.total_mater_mwh if parsed.total_mater_mwh else 0.0
+    )
+    return MercadoMes(
+        costo_renovable_usd_mwh=precio_mater_promedio,
+        precio_spot_usd_mwh=precio_spot_promedio,
+        costo_cammesa_usd_mwh=precio_spot_promedio,
+        cargo_transporte_usd_mwh=parsed.cargo_transporte_pesos_mwh or 0.0,
+        precio_spot_pico_pesos_mwh=parsed.precio_spot_pico_pesos_mwh,
+        precio_spot_valle_pesos_mwh=parsed.precio_spot_valle_pesos_mwh,
+        precio_spot_resto_pesos_mwh=parsed.precio_spot_resto_pesos_mwh,
+        cargo_transporte_pesos_mwh=parsed.cargo_transporte_pesos_mwh,
+    )
+
+
 def extract_mercado(variables_path: Path, anio: int, mes: int) -> MercadoMes:
+    if is_cammesa_txt_zip(variables_path):
+        logging.info("Extrayendo precios de mercado desde ZIP CAMMESA %s", variables_path.name)
+        return extract_mercado_from_cammesa_zip(variables_path)
+
     mercado_real = extract_mercado_from_variables_relevantes(variables_path, anio, mes)
     if mercado_real:
         logging.info("Variables Relevantes parseadas con formato CAMMESA real para %s-%02d", anio, mes)
@@ -321,17 +586,13 @@ def extract_mercado(variables_path: Path, anio: int, mes: int) -> MercadoMes:
                 values[field] = find_value_by_alias(row, field_aliases)
 
     missing_required: list[str] = []
-    resolved: dict[str, float] = {}
+    resolved: dict[str, float | None] = dict.fromkeys(aliases)
     for field in aliases:
         value = values[field]
         if value is None and defaults[field] is not None:
             value = to_float(defaults[field])
         if value is None:
-            if field in {
-                "precio_potencia_usd_mw_mes",
-                "cargo_transporte_usd_mwh",
-                "precio_gasoil_importado_usd_mwh",
-            }:
+            if field in {"precio_potencia_usd_mw_mes", "cargo_transporte_usd_mwh", "precio_gasoil_importado_usd_mwh"}:
                 value = 0.0
             else:
                 missing_required.append(field)
@@ -500,7 +761,77 @@ def calculate_module_2(
     return results
 
 
-def process_empresa(
+def process_empresa_from_cammesa_zip(
+    supabase: Client,
+    empresa: dict[str, Any],
+    parsed: ParsedCammesaZip,
+    mercado: MercadoMes,
+    anio: int,
+    mes: int,
+) -> dict[str, Any] | None:
+    empresa_id = empresa["id"]
+    razon_social = empresa["razon_social"]
+    nemos = fetch_nemos(supabase, empresa_id)
+    if not nemos:
+        logging.warning("Empresa %s sin Nemos activos; se omite", razon_social)
+        return None
+
+    matched = [parsed.empresas[nemo] for nemo in nemos if nemo in parsed.empresas]
+    if not matched:
+        logging.warning("No se encontraron Nemos %s en el ZIP CAMMESA para %s", ", ".join(nemos), razon_social)
+        return None
+
+    demanda_total = sum(item.demanda_total_mwh for item in matched)
+    mater_mwh = sum(item.mater_mwh for item in matched)
+    spot_mwh = sum(item.spot_mwh for item in matched)
+    importe_mater_pesos = sum(item.importe_mater_pesos for item in matched)
+    saldo_total = spot_mwh
+    porcentaje_renovable = min(100.0, (mater_mwh / demanda_total * 100) if demanda_total else 0.0)
+    precio_efectivo_pesos_mwh = (importe_mater_pesos / mater_mwh) if mater_mwh else 0.0
+    precio_spot_pesos_mwh = average(
+        mercado.precio_spot_pico_pesos_mwh,
+        mercado.precio_spot_valle_pesos_mwh,
+        mercado.precio_spot_resto_pesos_mwh,
+    )
+    cargo_transporte_pesos_mwh = mercado.cargo_transporte_pesos_mwh or 0.0
+    costo_total_estimado = (
+        importe_mater_pesos
+        + (spot_mwh * precio_spot_pesos_mwh)
+        + (demanda_total * cargo_transporte_pesos_mwh)
+    )
+
+    payload = {
+        "empresa_id": empresa_id,
+        "nemo": ",".join(nemos),
+        "anio": anio,
+        "mes": mes,
+        "demanda_total_mwh": demanda_total,
+        "mater_mwh": mater_mwh,
+        "spot_mwh": spot_mwh,
+        "saldo_total_mwh": saldo_total,
+        "porcentaje_renovable": porcentaje_renovable,
+        "costo_renovable_usd_mwh": precio_efectivo_pesos_mwh,
+        "costo_spot_usd_mwh": precio_spot_pesos_mwh,
+        "costo_total_estimado_usd": costo_total_estimado,
+        "importe_mater_pesos": importe_mater_pesos,
+        "precio_efectivo_pesos_mwh": precio_efectivo_pesos_mwh,
+        "cargo_transporte_pesos_mwh": cargo_transporte_pesos_mwh,
+        "precio_spot_pesos_mwh": precio_spot_pesos_mwh,
+        "procesado_en": datetime.now(UTC).isoformat(),
+    }
+    supabase.table("datos_mensuales").upsert(payload, on_conflict="empresa_id,anio,mes").execute()
+    logging.info(
+        "%s procesada desde ZIP CAMMESA: demanda=%.2f MWh mater=%.2f MWh importe=%.2f pesos renovable=%.2f%%",
+        razon_social,
+        demanda_total,
+        mater_mwh,
+        importe_mater_pesos,
+        porcentaje_renovable,
+    )
+    return payload
+
+
+def process_empresa_legacy(
     supabase: Client,
     empresa: dict[str, Any],
     dte: pd.DataFrame,
@@ -532,15 +863,9 @@ def process_empresa(
         contratos = fetch_contratos(supabase, empresa_id, anio, mes)
         precio_contrato = weighted_contract_price(contratos, mater_rows)
         costo_mater_usd = mater_mwh * precio_contrato
-        costo_spot_usd = spot_mwh * mercado.precio_spot_usd_mwh
-        potencia_contratada_mw = to_float(os.getenv("ENERGYOS_POTENCIA_CONTRATADA_MW_DEFAULT", "0"))
-        costo_potencia_usd = potencia_contratada_mw * mercado.precio_potencia_usd_mw_mes
-        costo_transporte_usd = demanda_total * mercado.cargo_transporte_usd_mwh
-        cargos_pct = to_float(os.getenv("ENERGYOS_CARGOS_ADICIONALES_PCT", str(DEFAULT_CARGOS_ADICIONALES_PCT)))
-        subtotal = costo_mater_usd + costo_spot_usd + costo_potencia_usd + costo_transporte_usd
-        cargos_adicionales_usd = subtotal * cargos_pct
-        costo_total_usd = subtotal + cargos_adicionales_usd
-        costo_monomico_usd_mwh = (costo_total_usd / demanda_total) if demanda_total else 0.0
+        costo_spot_usd = spot_mwh * (mercado.precio_spot_usd_mwh or 0.0)
+        costo_transporte_usd = demanda_total * (mercado.cargo_transporte_usd_mwh or 0.0)
+        costo_total_usd = costo_mater_usd + costo_spot_usd + costo_transporte_usd
 
         historial = fetch_historial_anual(supabase, empresa_id, anio, mes)
         compliance_context = calculate_compliance_context(
@@ -548,9 +873,9 @@ def process_empresa(
             demanda_total,
             mater_mwh,
             mes,
-            mercado.precio_gasoil_importado_usd_mwh,
+            mercado.precio_gasoil_importado_usd_mwh or 0.0,
         )
-        module_2 = calculate_module_2(contratos, mercado.costo_renovable_usd_mwh, mater_mwh)
+        module_2 = calculate_module_2(contratos, mercado.costo_renovable_usd_mwh or 0.0, mater_mwh)
 
         payload = {
             "empresa_id": empresa_id,
@@ -562,21 +887,24 @@ def process_empresa(
             "spot_mwh": spot_mwh,
             "saldo_total_mwh": saldo_total,
             "porcentaje_renovable": porcentaje_renovable,
-            "costo_renovable_usd_mwh": mercado.costo_renovable_usd_mwh,
-            "costo_spot_usd_mwh": mercado.precio_spot_usd_mwh,
+            "costo_renovable_usd_mwh": mercado.costo_renovable_usd_mwh or 0.0,
+            "costo_spot_usd_mwh": mercado.precio_spot_usd_mwh or 0.0,
             "costo_total_estimado_usd": costo_total_usd,
+            "importe_mater_pesos": None,
+            "precio_efectivo_pesos_mwh": None,
+            "cargo_transporte_pesos_mwh": None,
+            "precio_spot_pesos_mwh": None,
             "procesado_en": datetime.now(UTC).isoformat(),
         }
         supabase.table("datos_mensuales").upsert(payload, on_conflict="empresa_id,anio,mes").execute()
         logging.info(
-            "%s procesada: demanda=%.2f MWh mater=%.2f MWh spot=%.2f MWh renovable=%.2f%% estado=%s monomico=%.2f USD/MWh contratos=%s",
+            "%s procesada legacy: demanda=%.2f MWh mater=%.2f MWh spot=%.2f MWh renovable=%.2f%% estado=%s contratos=%s",
             razon_social,
             demanda_total,
             mater_mwh,
             spot_mwh,
             porcentaje_renovable,
             compliance_context["estado"],
-            costo_monomico_usd_mwh,
             len(module_2),
         )
         return payload
@@ -585,13 +913,38 @@ def process_empresa(
         return None
 
 
+def process_empresa(
+    supabase: Client,
+    empresa: dict[str, Any],
+    dte: pd.DataFrame | ParsedCammesaZip,
+    mercado: MercadoMes,
+    anio: int,
+    mes: int,
+) -> dict[str, Any] | None:
+    if isinstance(dte, ParsedCammesaZip):
+        try:
+            return process_empresa_from_cammesa_zip(supabase, empresa, dte, mercado, anio, mes)
+        except Exception:
+            logging.exception("Error procesando empresa %s", empresa["razon_social"])
+            return None
+    return process_empresa_legacy(supabase, empresa, dte, mercado, anio, mes)
+
+
 def previous_period(anio: int, mes: int) -> tuple[int, int]:
     if mes == 1:
         return anio - 1, 12
     return anio, mes - 1
 
 
-def calculate_market_variations(supabase: Client, anio: int, mes: int, generacion_mater_gwh: float) -> tuple[float | None, float | None]:
+def calculate_market_variations(
+    supabase: Client,
+    anio: int,
+    mes: int,
+    generacion_mater_gwh: float | None,
+) -> tuple[float | None, float | None]:
+    if generacion_mater_gwh is None:
+        return None, None
+
     prev_anio, prev_mes = previous_period(anio, mes)
     previous = (
         supabase.table("datos_mercado")
@@ -619,29 +972,62 @@ def calculate_market_variations(supabase: Client, anio: int, mes: int, generacio
     return mater_mom_pct, mater_yoy_pct
 
 
+def existing_market_row(supabase: Client, anio: int, mes: int) -> dict[str, Any] | None:
+    response = (
+        supabase.table("datos_mercado")
+        .select("*")
+        .eq("anio", anio)
+        .eq("mes", mes)
+        .maybe_single()
+        .execute()
+    )
+    if response is None:
+        return None
+    return response.data or None
+
+
+def coalesce_number(new_value: float | None, previous_value: Any, default: float = 0.0) -> float:
+    if new_value is not None:
+        return float(new_value)
+    if previous_value is not None:
+        return to_float(previous_value, default=default)
+    return default
+
+
 def upsert_mercado(supabase: Client, mercado: MercadoMes, anio: int, mes: int) -> None:
+    previous = existing_market_row(supabase, anio, mes) or {}
+    generacion_mater = mercado.generacion_mater_gwh
+    resolved_generacion_mater = coalesce_number(generacion_mater, previous.get("generacion_mater_gwh"))
     mater_mom_pct, mater_yoy_pct = calculate_market_variations(
         supabase,
         anio,
         mes,
-        mercado.generacion_mater_gwh,
+        generacion_mater if generacion_mater is not None else previous.get("generacion_mater_gwh"),
     )
+
     payload = {
         "anio": anio,
         "mes": mes,
-        "generacion_total_gwh": mercado.generacion_total_gwh,
-        "generacion_mater_gwh": mercado.generacion_mater_gwh,
-        "mix_termica_pct": mercado.mix_termica_pct,
-        "mix_hidraulica_pct": mercado.mix_hidraulica_pct,
-        "mix_nuclear_pct": mercado.mix_nuclear_pct,
-        "mix_renovable_pct": mercado.mix_renovable_pct,
-        "precio_spot_usd_mwh": mercado.precio_spot_usd_mwh,
-        "costo_renovable_usd_mwh": mercado.costo_renovable_usd_mwh,
-        "costo_cammesa_usd_mwh": mercado.costo_cammesa_usd_mwh,
-        "mater_mom_pct": mater_mom_pct,
-        "mater_yoy_pct": mater_yoy_pct,
+        "generacion_total_gwh": coalesce_number(mercado.generacion_total_gwh, previous.get("generacion_total_gwh")),
+        "generacion_mater_gwh": resolved_generacion_mater,
+        "mix_termica_pct": coalesce_number(mercado.mix_termica_pct, previous.get("mix_termica_pct")),
+        "mix_hidraulica_pct": coalesce_number(mercado.mix_hidraulica_pct, previous.get("mix_hidraulica_pct")),
+        "mix_nuclear_pct": coalesce_number(mercado.mix_nuclear_pct, previous.get("mix_nuclear_pct")),
+        "mix_renovable_pct": coalesce_number(mercado.mix_renovable_pct, previous.get("mix_renovable_pct")),
+        "precio_spot_usd_mwh": coalesce_number(mercado.precio_spot_usd_mwh, previous.get("precio_spot_usd_mwh")),
+        "costo_renovable_usd_mwh": coalesce_number(mercado.costo_renovable_usd_mwh, previous.get("costo_renovable_usd_mwh")),
+        "costo_cammesa_usd_mwh": coalesce_number(mercado.costo_cammesa_usd_mwh, previous.get("costo_cammesa_usd_mwh")),
+        "mater_mom_pct": mater_mom_pct if mater_mom_pct is not None else previous.get("mater_mom_pct"),
+        "mater_yoy_pct": mater_yoy_pct if mater_yoy_pct is not None else previous.get("mater_yoy_pct"),
+        "precio_spot_pico_pesos_mwh": mercado.precio_spot_pico_pesos_mwh,
+        "precio_spot_valle_pesos_mwh": mercado.precio_spot_valle_pesos_mwh,
+        "precio_spot_resto_pesos_mwh": mercado.precio_spot_resto_pesos_mwh,
+        "cargo_transporte_pesos_mwh": mercado.cargo_transporte_pesos_mwh,
     }
-    supabase.table("datos_mercado").upsert(payload, on_conflict="anio,mes").execute()
+    if previous:
+        supabase.table("datos_mercado").update(payload).eq("anio", anio).eq("mes", mes).execute()
+    else:
+        supabase.table("datos_mercado").insert(payload).execute()
     logging.info("Datos de mercado actualizados para %s-%02d", anio, mes)
 
 
@@ -656,17 +1042,22 @@ def verify_month(supabase: Client, processed_empresa_ids: set[str], anio: int, m
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Procesa el DTE mensual y Variables Relevantes MEM para EnergyOS.")
-    parser.add_argument("dte_xlsx", type=Path, help="Archivo DTE_Detallado_Provisorio_[MES]_[ANIO].xlsx")
-    parser.add_argument("variables_relevantes_xlsx", type=Path, help="Archivo BASE DE DATOS Variables Relevantes del MEM .xlsx")
-    parser.add_argument("--anio", type=int, help="Anio del DTE. Si se omite, se intenta inferir del nombre del archivo.")
-    parser.add_argument("--mes", type=int, help="Mes del DTE (1-12). Si se omite, se intenta inferir del nombre del archivo.")
+    parser = argparse.ArgumentParser(description="Procesa archivos CAMMESA para EnergyOS.")
+    parser.add_argument("input_path", type=Path, help="ZIP DTE[AAMM].zip o archivo legacy DTE .xlsx")
+    parser.add_argument(
+        "variables_relevantes_xlsx",
+        nargs="?",
+        type=Path,
+        help="Archivo legacy de Variables Relevantes. En el flujo nuevo no se usa.",
+    )
+    parser.add_argument("--anio", type=int, help="Anio del periodo.")
+    parser.add_argument("--mes", type=int, help="Mes del periodo (1-12).")
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
-    inferred_anio, inferred_mes = infer_period_from_filename(args.dte_xlsx)
+    inferred_anio, inferred_mes = infer_period_from_filename(args.input_path)
     anio = args.anio or inferred_anio
     mes = args.mes or inferred_mes
     if not anio or not mes:
@@ -681,8 +1072,11 @@ def main() -> int:
     service_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or get_required_env("SUPABASE_SERVICE_KEY")
     supabase = create_client(supabase_url, service_key)
 
-    dte = parse_dte_mate(args.dte_xlsx)
-    mercado = extract_mercado(args.variables_relevantes_xlsx, anio, mes)
+    dte = parse_dte_mate(args.input_path)
+    mercado_source = args.input_path if is_cammesa_txt_zip(args.input_path) else args.variables_relevantes_xlsx
+    if mercado_source is None:
+        raise SystemExit("Para el flujo legacy tenes que pasar tambien el archivo de Variables Relevantes.")
+    mercado = extract_mercado(mercado_source, anio, mes)
 
     processed_empresa_ids: set[str] = set()
     for empresa in fetch_active_empresas(supabase):

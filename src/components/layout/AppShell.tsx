@@ -2,30 +2,23 @@ import {
   BarChart3,
   FileCheck2,
   LineChart,
-  Lock,
   LogOut,
   Menu,
   RefreshCcw,
   Route,
   ShieldCheck,
   X,
-  Zap,
 } from "lucide-react";
 import { useCallback, useState, type ReactNode } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import planes from "../../data/planes.json";
 import { useAsyncData } from "../../hooks/useAsyncData";
 import { getEmpresaData } from "../../services/energyData";
-import type { EmpresaData, Plan } from "../../types";
+import type { EmpresaData } from "../../types";
 import { clearSession, getSession } from "../../utils/session";
-import { Badge } from "../ui/Badge";
 import { Button } from "../ui/Button";
 import { LoadingScreen } from "../ui/LoadingScreen";
 import { Logo } from "../ui/Logo";
-import { PricingModal } from "../ui/PricingModal";
 
-const planList = planes as Plan[];
-const protectedItems = new Set(["/contratos", "/costos", "/migracion"]);
 const initialEmpresa: EmpresaData = {
   id: "",
   razon_social: "",
@@ -49,40 +42,13 @@ function NavItem({
   to,
   label,
   icon: Icon,
-  onLocked,
   onNavigate,
-  planActivo,
 }: {
   to: string;
   label: string;
   icon: typeof BarChart3;
-  onLocked: () => void;
   onNavigate: () => void;
-  planActivo: EmpresaData["plan_activo"];
 }) {
-  const locked = protectedItems.has(to) && planActivo === "compliance";
-  const navigate = useNavigate();
-
-  if (locked) {
-    return (
-      <button
-        className="group flex w-full items-center justify-between gap-3 rounded-md px-3 py-3 text-left text-sm text-mist/65 transition hover:bg-navy-border/45 hover:text-ivory"
-        onClick={() => {
-          if (to !== "/migracion") navigate(to);
-          onLocked();
-          onNavigate();
-        }}
-        title="Disponible en Plan Gestion"
-      >
-        <span className="flex items-center gap-3">
-          <Icon size={18} />
-          {label}
-        </span>
-        <Lock size={14} />
-      </button>
-    );
-  }
-
   return (
     <NavLink
       className={({ isActive }) =>
@@ -104,15 +70,11 @@ function NavItem({
 function Sidebar({
   email,
   empresa,
-  activePlan,
   onClose,
-  onUpgrade,
 }: {
   email: string;
   empresa: EmpresaData;
-  activePlan: Plan | undefined;
   onClose: () => void;
-  onUpgrade: () => void;
 }) {
   return (
     <aside className="flex h-full w-[260px] shrink-0 flex-col border-r border-navy-border bg-navy-soft">
@@ -129,9 +91,7 @@ function Sidebar({
             icon={item.icon}
             key={item.to}
             label={item.label}
-            onLocked={onUpgrade}
             onNavigate={onClose}
-            planActivo={empresa.plan_activo}
             to={item.to}
           />
         ))}
@@ -140,17 +100,13 @@ function Sidebar({
       <div className="border-t border-navy-border p-4">
         <div className="rounded-lg border border-navy-border bg-navy p-4">
           <p className="text-sm font-semibold text-ivory">{empresa.razon_social}</p>
-          <div className="mt-2 flex items-center gap-2">
-            <span className="text-xs text-mist">Plan</span>
-            <Badge tone="plan">{activePlan?.nombre}</Badge>
-          </div>
-          <p className="number mt-2 text-xs text-mist">
-            USD {activePlan?.precio_usd}/mes
+          <p className="mt-2 text-xs text-mist">
+            {empresa.tipo_usuario} · {empresa.nemo || "Sin NEMO"}
           </p>
-          <Button className="mt-4 w-full" onClick={onUpgrade} variant="outline">
-            Mejorar plan
-          </Button>
-          <p className="mt-3 truncate text-xs text-mist">{email}</p>
+          <p className="mt-1 text-xs text-mist">
+            Comercializador: {empresa.comercializador || "No informado"}
+          </p>
+          <p className="mt-4 truncate text-xs text-mist">{email}</p>
         </div>
       </div>
     </aside>
@@ -158,13 +114,11 @@ function Sidebar({
 }
 
 export function AppShell({ children }: { children?: ReactNode }) {
-  const [pricingOpen, setPricingOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const navigate = useNavigate();
   const session = getSession();
   const { data: empresa, error: empresaError } = useAsyncData(getEmpresaData, initialEmpresa);
-  const activePlan = planList.find((plan) => plan.id === empresa.plan_activo);
 
   const logout = useCallback(() => {
     clearSession();
@@ -189,7 +143,6 @@ export function AppShell({ children }: { children?: ReactNode }) {
         />
       ) : null}
 
-      {pricingOpen ? <PricingModal onClose={() => setPricingOpen(false)} /> : null}
       {empresaError ? (
         <section className="fixed left-1/2 top-4 z-[90] w-[min(92vw,720px)] -translate-x-1/2 rounded border border-danger/40 bg-danger/95 px-4 py-3 text-sm text-white shadow-panel">
           {empresaError}
@@ -199,11 +152,9 @@ export function AppShell({ children }: { children?: ReactNode }) {
       <div className="flex min-h-screen">
         <div className="hidden lg:block">
           <Sidebar
-            activePlan={activePlan}
             email={session?.email ?? ""}
             empresa={empresa}
             onClose={() => setDrawerOpen(false)}
-            onUpgrade={() => setPricingOpen(true)}
           />
         </div>
 
@@ -215,11 +166,9 @@ export function AppShell({ children }: { children?: ReactNode }) {
               onClick={() => setDrawerOpen(false)}
             />
             <Sidebar
-              activePlan={activePlan}
               email={session?.email ?? ""}
               empresa={empresa}
               onClose={() => setDrawerOpen(false)}
-              onUpgrade={() => setPricingOpen(true)}
             />
           </div>
         ) : null}
@@ -228,30 +177,23 @@ export function AppShell({ children }: { children?: ReactNode }) {
           <header className="sticky top-0 z-30 flex min-h-16 items-center justify-between gap-4 border-b border-navy-border bg-white/88 px-4 backdrop-blur md:px-6">
             <div className="flex min-w-0 items-center gap-3">
               <button
+                aria-label="Abrir menú"
                 className="rounded border border-navy-border p-2 text-mist lg:hidden"
                 onClick={() => setDrawerOpen(true)}
-                aria-label="Abrir menú"
               >
                 <Menu size={20} />
               </button>
               <div className="min-w-0">
-                <div className="flex items-center gap-3">
-                  <h1 className="truncate font-syne text-base font-bold text-ivory md:text-lg">
-                    {empresa.razon_social}
-                  </h1>
-                  <Badge tone="plan">{activePlan?.nombre}</Badge>
-                </div>
+                <h1 className="truncate font-syne text-base font-bold text-ivory md:text-lg">
+                  {empresa.razon_social}
+                </h1>
                 <p className="text-xs text-mist">
                   {empresa.tipo_usuario} · {empresa.nemo} · {empresa.comercializador}
                 </p>
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-2">
-              <Button
-                className="hidden md:inline-flex"
-                onClick={refresh}
-                variant="ghost"
-              >
+              <Button className="hidden md:inline-flex" onClick={refresh} variant="ghost">
                 <RefreshCcw size={16} />
                 Actualizar datos
               </Button>
@@ -259,9 +201,9 @@ export function AppShell({ children }: { children?: ReactNode }) {
                 {session?.email}
               </span>
               <button
+                aria-label="Cerrar sesión"
                 className="rounded border border-navy-border p-2 text-mist transition hover:text-ivory"
                 onClick={logout}
-                aria-label="Cerrar sesión"
               >
                 <LogOut size={18} />
               </button>
@@ -273,14 +215,6 @@ export function AppShell({ children }: { children?: ReactNode }) {
           </main>
         </div>
       </div>
-
-      <button
-        className="fixed bottom-5 right-5 z-30 hidden rounded-full border border-forest/45 bg-forest px-4 py-3 font-syne text-xs font-bold uppercase text-white shadow-panel transition hover:bg-forest-dark md:inline-flex"
-        onClick={() => setPricingOpen(true)}
-      >
-        <Zap className="mr-2" size={16} />
-        Ver planes
-      </button>
     </div>
   );
 }

@@ -1,12 +1,13 @@
 import type { ReactNode } from "react";
 
-type Tone = "success" | "warning" | "neutral" | "plan";
+type Tone = "success" | "warning" | "neutral" | "plan" | "danger";
 
 const tones: Record<Tone, string> = {
   success: "border-forest/20 bg-forest/10 text-forest",
   warning: "border-alert/45 bg-alert/10 text-alert",
   neutral: "border-mist/25 bg-navy text-mist",
   plan: "border-forest/20 bg-forest/10 text-forest",
+  danger: "border-danger/40 bg-danger/10 text-ivory",
 };
 
 export function Badge({

@@ -1,9 +1,10 @@
 import { Eye, EyeOff, LogIn } from "lucide-react";
 import { useState, type FormEvent } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { Button } from "../components/ui/Button";
 import { LoadingScreen } from "../components/ui/LoadingScreen";
 import { Logo } from "../components/ui/Logo";
+import { isCurrentUserAdmin } from "../services/adminData";
 import { setSession } from "../utils/session";
 
 const accessMessages = [
@@ -35,7 +36,8 @@ export default function Access() {
     setLoading(true);
     try {
       await setSession(email, password);
-      navigate("/dashboard");
+      const isAdmin = await isCurrentUserAdmin();
+      navigate(isAdmin ? "/admin/empresas" : "/dashboard");
     } catch (caught) {
       setError(
         caught instanceof Error
@@ -113,12 +115,6 @@ export default function Access() {
           </Button>
         </form>
 
-        <Link
-          className="mt-6 block text-center text-sm text-forest transition hover:text-forest-light"
-          to="/contratacion"
-        >
-          ¿Aún no tenés acceso? Solicitá una cuenta
-        </Link>
       </section>
     </div>
   );

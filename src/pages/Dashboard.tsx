@@ -1,15 +1,10 @@
-import { Lock } from "lucide-react";
-import { useState } from "react";
 import { ChartFrame } from "../components/charts/ChartFrame";
 import { ContractChart } from "../components/charts/ContractChart";
 import { DemandChart } from "../components/charts/DemandChart";
 import { MixDonut } from "../components/charts/MixDonut";
 import { Badge } from "../components/ui/Badge";
-import { Button } from "../components/ui/Button";
 import { LoadingScreen } from "../components/ui/LoadingScreen";
-import { LockedOverlay } from "../components/ui/LockedOverlay";
 import { Panel } from "../components/ui/Panel";
-import { PricingModal } from "../components/ui/PricingModal";
 import { StatCard } from "../components/ui/StatCard";
 import { useAsyncData } from "../hooks/useAsyncData";
 import {
@@ -58,7 +53,6 @@ async function loadDashboardData() {
 }
 
 export default function Dashboard() {
-  const [pricingOpen, setPricingOpen] = useState(false);
   const { data, error, loading } = useAsyncData(loadDashboardData, {
     empresa: emptyEmpresa,
     compliance: [] as ComplianceRow[],
@@ -73,28 +67,16 @@ export default function Dashboard() {
   return (
     <div className="space-y-6">
       {loading ? <LoadingScreen messages={["Cargando datos reales...", "Consultando Supabase..."]} /> : null}
-      {pricingOpen ? <PricingModal onClose={() => setPricingOpen(false)} /> : null}
       {error ? (
         <section className="rounded border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-ivory">
           {error}
         </section>
       ) : null}
 
-      <section className="rounded border border-forest/25 bg-forest/10 px-4 py-3 text-sm text-forest-light">
-        Tu plan Compliance incluye seguimiento renovable. Los anÃ¡lisis de
-        contratos y costos estÃ¡n disponibles en planes superiores.{" "}
-        <button
-          className="font-semibold text-ivory transition hover:text-forest-light"
-          onClick={() => setPricingOpen(true)}
-        >
-          Ver planes
-        </button>
-      </section>
-
       <div>
         <p className="text-sm uppercase text-mist">Resumen ejecutivo</p>
         <h2 className="mt-1 font-fraunces text-3xl font-bold text-ivory">
-          Estado energÃ©tico de {data.empresa.razon_social || "tu empresa"}
+          Estado energético de {data.empresa.razon_social || "tu empresa"}
         </h2>
       </div>
 
@@ -122,14 +104,13 @@ export default function Dashboard() {
         <StatCard
           borderColor="yellow"
           label="Factura"
-          subtext="Desglose disponible en Plan GestiÃ³n"
-          locked
+          subtext={`Ultimo mes: ${latestCost?.mes ?? "Sin datos"}`}
           value={usd(latestCost?.total_usd ?? 0)}
         />
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.4fr_0.9fr]">
-        <ChartFrame subtitle="MATER y SPOT por mes" title="Demanda de energÃ­a">
+        <ChartFrame subtitle="MATER y SPOT por mes" title="Demanda de energía">
           <DemandChart data={data.compliance} />
         </ChartFrame>
 
@@ -139,9 +120,9 @@ export default function Dashboard() {
               <h3 className="font-syne text-base font-bold text-ivory">
                 Mix de cobertura
               </h3>
-              <p className="mt-1 text-sm text-mist">DistribuciÃ³n anual</p>
+              <p className="mt-1 text-sm text-mist">Distribución anual</p>
             </div>
-            <Badge tone="success">Incluido</Badge>
+            <Badge tone="success">Activo</Badge>
           </div>
           <div className="space-y-4">
             <MixDonut data={data.mercado.mater_spot} title={data.empresa.razon_social || "Empresa"} />
@@ -150,38 +131,9 @@ export default function Dashboard() {
         </Panel>
       </div>
 
-      <div className="relative overflow-hidden rounded">
-        <div className="blur-[4px]">
-          <ChartFrame subtitle="Comparativo contra referencia MEM" title="Benchmark de contratos">
-            <ContractChart contratos={data.contratos} />
-          </ChartFrame>
-        </div>
-        <LockedOverlay
-          description="ComparÃ¡ el precio de cada contrato contra referencias de mercado y detectÃ¡ oportunidades de renegociaciÃ³n."
-          onUpgradeClick={() => setPricingOpen(true)}
-        />
-      </div>
-
-      <Panel className="p-5">
-        <div className="flex items-start gap-4">
-          <div className="rounded border border-forest/35 bg-forest/15 p-3 text-forest-light">
-            <Lock size={22} />
-          </div>
-          <div>
-            <h3 className="font-syne text-base font-bold text-ivory">
-              PrÃ³xima mejora recomendada
-            </h3>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-mist">
-              Activar Plan GestiÃ³n habilita benchmark MATER, proyecciÃ³n de
-              costos 12 meses y desglose de factura para anticipar picos de
-              invierno.
-            </p>
-            <Button className="mt-4" onClick={() => setPricingOpen(true)}>
-              Ver planes
-            </Button>
-          </div>
-        </div>
-      </Panel>
+      <ChartFrame subtitle="Comparativo contra referencia MEM" title="Benchmark de contratos">
+        <ContractChart contratos={data.contratos} />
+      </ChartFrame>
     </div>
   );
 }

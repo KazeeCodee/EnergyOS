@@ -1,14 +1,5 @@
 export type PlanId = "compliance" | "gestion" | "full" | "white-label";
 
-export type Plan = {
-  id: PlanId;
-  nombre: string;
-  precio_usd: number | null;
-  descripcion: string;
-  features: string[];
-  recomendado?: boolean;
-};
-
 export type Session = {
   email: string;
   empresa: string;
@@ -70,6 +61,19 @@ export type CostosData = {
   desglose_oct_2025: { concepto: string; valor_usd: number }[];
 };
 
+export type AdminRawData = {
+  anio: number;
+  mes: number;
+  mater_mwh: number;
+  demanda_total_mwh: number;
+  importe_mater_pesos: number;
+  precio_efectivo_pesos_mwh: number;
+  precio_spot_pico_pesos_mwh: number;
+  precio_spot_valle_pesos_mwh: number;
+  precio_spot_resto_pesos_mwh: number;
+  cargo_transporte_pesos_mwh: number;
+};
+
 export type AdminEmpresaRow = {
   id: string;
   razon_social: string;
@@ -81,6 +85,12 @@ export type AdminEmpresaRow = {
   ultimo_mes: string;
   demanda_total_mwh: number;
   porcentaje_renovable: number;
+};
+
+export type AdminEmpresaOption = {
+  id: string;
+  razon_social: string;
+  nemos: string[];
 };
 
 export type AdminStats = {
@@ -102,6 +112,20 @@ export type AdminArchivo = {
   mes: number;
   file_name: string;
   file_path: string;
+  uploaded_by?: string | null;
+  created_at: string;
+};
+
+export type AdminProcesamientoEmpresa = {
+  id: string;
+  procesamiento_id: string;
+  empresa_id: string | null;
+  empresa_nombre: string;
+  estado: "pendiente" | "completo" | "error" | "sin_datos";
+  mensaje: string | null;
+  demanda_total_mwh: number;
+  mater_mwh: number;
+  spot_mwh: number;
   created_at: string;
 };
 
@@ -112,5 +136,10 @@ export type AdminProcesamiento = {
   estado: "pendiente" | "procesando" | "completo" | "error";
   resumen: Record<string, unknown>;
   error_message: string | null;
+  started_at: string | null;
+  completed_at: string | null;
   created_at: string;
+  dte_archivo: AdminArchivo | null;
+  variables_archivo: AdminArchivo | null;
+  empresas: AdminProcesamientoEmpresa[];
 };

@@ -1,4 +1,5 @@
 import type {
+  AdminRawData,
   ComplianceRow,
   ContratosData,
   CostosData,
@@ -27,6 +28,10 @@ type DbDatoMensual = {
   costo_renovable_usd_mwh: number | string;
   costo_spot_usd_mwh: number | string;
   costo_total_estimado_usd: number | string;
+  importe_mater_pesos?: number | string | null;
+  precio_efectivo_pesos_mwh?: number | string | null;
+  cargo_transporte_pesos_mwh?: number | string | null;
+  precio_spot_pesos_mwh?: number | string | null;
 };
 
 type DbMercado = {
@@ -38,6 +43,10 @@ type DbMercado = {
   mix_renovable_pct: number | string;
   costo_renovable_usd_mwh: number | string;
   precio_spot_usd_mwh: number | string;
+  precio_spot_pico_pesos_mwh?: number | string | null;
+  precio_spot_valle_pesos_mwh?: number | string | null;
+  precio_spot_resto_pesos_mwh?: number | string | null;
+  cargo_transporte_pesos_mwh?: number | string | null;
 };
 
 type DbContrato = {
@@ -74,16 +83,20 @@ function scoreContrato(precioContrato: number, precioMercado: number) {
   return "muy_caro";
 }
 
-async function getEmpresaRow() {
+async function getEmpresaRow(empresaId?: string | null) {
   assertSupabaseConfig();
-  const { data, error } = await supabase
-    .from("empresas")
-    .select("*")
-    .order("created_at", { ascending: true })
-    .limit(1);
+  let query = supabase.from("empresas").select("*");
+  query = empresaId ? query.eq("id", empresaId) : query.order("created_at", { ascending: true }).limit(1);
+  const { data, error } = await query;
   if (error) throw error;
   const empresa = data?.[0] as DbEmpresa | undefined;
-  if (!empresa) throw new Error("No hay una empresa asociada al usuario autenticado.");
+  if (!empresa) {
+    throw new Error(
+      empresaId
+        ? "No encontramos la empresa seleccionada."
+        : "No hay una empresa asociada al usuario autenticado.",
+    );
+  }
   return empresa;
 }
 
@@ -109,6 +122,18 @@ async function getDatosMensuales(empresaId: string) {
   return (data ?? []) as DbDatoMensual[];
 }
 
+async function getDatoMensual(empresaId: string, anio: number, mes: number) {
+  const { data, error } = await supabase
+    .from("datos_mensuales")
+    .select("*")
+    .eq("empresa_id", empresaId)
+    .eq("anio", anio)
+    .eq("mes", mes)
+    .maybeSingle();
+  if (error) throw error;
+  return (data as DbDatoMensual | null) ?? null;
+}
+
 async function getLatestMercado() {
   const { data, error } = await supabase
     .from("datos_mercado")
@@ -120,8 +145,19 @@ async function getLatestMercado() {
   return data?.[0] as DbMercado | undefined;
 }
 
-export async function getEmpresaData(): Promise<EmpresaData> {
-  const empresa = await getEmpresaRow();
+async function getMercadoByPeriod(anio: number, mes: number) {
+  const { data, error } = await supabase
+    .from("datos_mercado")
+    .select("*")
+    .eq("anio", anio)
+    .eq("mes", mes)
+    .maybeSingle();
+  if (error) throw error;
+  return (data as DbMercado | null) ?? null;
+}
+
+export async function getEmpresaData(empresaId?: string | null): Promise<EmpresaData> {
+  const empresa = await getEmpresaRow(empresaId);
   const nemos = await getNemos(empresa.id);
   return {
     id: empresa.id,
@@ -135,8 +171,8 @@ export async function getEmpresaData(): Promise<EmpresaData> {
   };
 }
 
-export async function getComplianceData(): Promise<ComplianceRow[]> {
-  const empresa = await getEmpresaRow();
+export async function getComplianceData(empresaId?: string | null): Promise<ComplianceRow[]> {
+  const empresa = await getEmpresaRow(empresaId);
   const rows = await getDatosMensuales(empresa.id);
   const acuerdoMes = num(empresa.acuerdo_mensual_mwh);
   return rows.map((row) => {
@@ -154,8 +190,8 @@ export async function getComplianceData(): Promise<ComplianceRow[]> {
   });
 }
 
-export async function getMercadoData(): Promise<MercadoData> {
-  const empresa = await getEmpresaRow();
+export async function getMercadoData(empresaId?: string | null): Promise<MercadoData> {
+  const empresa = await getEmpresaRow(empresaId);
   const [mercado, mensual] = await Promise.all([getLatestMercado(), getDatosMensuales(empresa.id)]);
   const latest = mensual[mensual.length - 1];
   const demandaTotal = num(latest?.demanda_total_mwh);
@@ -176,8 +212,8 @@ export async function getMercadoData(): Promise<MercadoData> {
   };
 }
 
-export async function getContratosData(): Promise<ContratosData> {
-  const empresa = await getEmpresaRow();
+export async function getContratosData(empresaId?: string | null): Promise<ContratosData> {
+  const empresa = await getEmpresaRow(empresaId);
   const [mercado, contratosResponse] = await Promise.all([
     getLatestMercado(),
     supabase
@@ -250,8 +286,8 @@ function projectCosts(rows: CostosData["serie"]) {
   });
 }
 
-export async function getCostosData(): Promise<CostosData> {
-  const empresa = await getEmpresaRow();
+export async function getCostosData(empresaId?: string | null): Promise<CostosData> {
+  const empresa = await getEmpresaRow(empresaId);
   const rows = await getDatosMensuales(empresa.id);
   const serie = rows.map((row) => {
     const demanda = num(row.demanda_total_mwh);
@@ -282,5 +318,33 @@ export async function getCostosData(): Promise<CostosData> {
       { concepto: "Transporte", valor_usd: Math.round(transporte) },
       { concepto: "Cargos", valor_usd: Math.round(cargos) },
     ],
+  };
+}
+
+export async function getAdminRawData(
+  empresaId: string,
+  anio: number,
+  mes: number,
+): Promise<AdminRawData | null> {
+  const [mensual, mercado] = await Promise.all([
+    getDatoMensual(empresaId, anio, mes),
+    getMercadoByPeriod(anio, mes),
+  ]);
+
+  if (!mensual && !mercado) return null;
+
+  return {
+    anio,
+    mes,
+    mater_mwh: num(mensual?.mater_mwh),
+    demanda_total_mwh: num(mensual?.demanda_total_mwh),
+    importe_mater_pesos: num(mensual?.importe_mater_pesos),
+    precio_efectivo_pesos_mwh: num(mensual?.precio_efectivo_pesos_mwh),
+    precio_spot_pico_pesos_mwh: num(mercado?.precio_spot_pico_pesos_mwh),
+    precio_spot_valle_pesos_mwh: num(mercado?.precio_spot_valle_pesos_mwh),
+    precio_spot_resto_pesos_mwh: num(mercado?.precio_spot_resto_pesos_mwh),
+    cargo_transporte_pesos_mwh: num(
+      mensual?.cargo_transporte_pesos_mwh ?? mercado?.cargo_transporte_pesos_mwh,
+    ),
   };
 }

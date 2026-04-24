@@ -66,11 +66,21 @@ def download_file(supabase: Client, archivo: dict[str, Any], target_dir: Path) -
         extract_dir = target_dir / f"{local_path.stem}_unzipped"
         extract_dir.mkdir(parents=True, exist_ok=True)
         with zipfile.ZipFile(local_path) as archive:
-            archive.extractall(extract_dir)
-        xlsx_files = sorted(extract_dir.rglob("*.xlsx"))
-        if not xlsx_files:
-            raise ValueError(f"El ZIP {archivo['file_name']} no contiene archivos .xlsx")
-        return xlsx_files[0]
+            members = archive.namelist()
+            has_xlsx = any(name.lower().endswith(".xlsx") for name in members)
+            has_cammesa_txt = all(
+                any(Path(name).name.upper().startswith(prefix) and name.lower().endswith(".txt") for name in members)
+                for prefix in ("AMAT", "AGUM", "ATRA")
+            )
+            if has_xlsx:
+                archive.extractall(extract_dir)
+                xlsx_files = sorted(extract_dir.rglob("*.xlsx"))
+                if not xlsx_files:
+                    raise ValueError(f"El ZIP {archivo['file_name']} no contiene archivos .xlsx")
+                return xlsx_files[0]
+            if has_cammesa_txt:
+                return local_path
+        raise ValueError(f"El ZIP {archivo['file_name']} no contiene ni .xlsx ni archivos CAMMESA AMAT/AGUM/ATRA")
 
     return local_path
 
