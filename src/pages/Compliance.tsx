@@ -11,10 +11,13 @@ import { Panel } from "../components/ui/Panel";
 import { useAsyncData } from "../hooks/useAsyncData";
 import { getComplianceData, getMercadoData } from "../services/energyData";
 import type { ComplianceRow, MercadoData } from "../types";
+import { number } from "../utils/format";
 import { getSession } from "../utils/session";
 
 const emptyLatest: ComplianceRow = {
   mes: "",
+  anio: 0,
+  mes_numero: 0,
   demanda_mwh: 0,
   mater_mwh: 0,
   spot_mwh: 0,
@@ -22,6 +25,8 @@ const emptyLatest: ComplianceRow = {
   acuerdo_mes_mwh: 0,
   cumple: false,
   alerta: false,
+  dato_sospechoso: false,
+  sospechoso_motivo: null,
 };
 const emptyMercado: MercadoData = { mem_mix: [], mater_spot: [] };
 
@@ -128,10 +133,10 @@ export default function Compliance() {
                 {data.rows.map((row) => (
                   <tr className="text-mist" key={row.mes}>
                     <td className="px-5 py-3 font-medium text-ivory">{row.mes}</td>
-                    <td className="number px-5 py-3">{row.demanda_mwh} MWh</td>
-                    <td className="number px-5 py-3">{row.mater_mwh} MWh</td>
-                    <td className="number px-5 py-3">{row.spot_mwh} MWh</td>
-                    <td className="number px-5 py-3">{row.porcentaje_renovable}%</td>
+                    <td className="number px-5 py-3">{number(row.demanda_mwh, 2)} MWh</td>
+                    <td className="number px-5 py-3">{number(row.mater_mwh, 2)} MWh</td>
+                    <td className="number px-5 py-3">{number(row.spot_mwh, 2)} MWh</td>
+                    <td className="number px-5 py-3">{number(row.porcentaje_renovable, 2)}%</td>
                     <td className="px-5 py-3">
                       <span className={`inline-flex items-center gap-2 ${row.cumple ? "text-forest-light" : "text-alert"}`}>
                         {row.cumple ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}

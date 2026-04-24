@@ -23,14 +23,22 @@ type AdminContextValue = {
   resetFilters: () => void;
 };
 
-const now = new Date();
+function getArgDateParts(): { anio: number; mes: number } {
+  const parts = new Intl.DateTimeFormat("es-AR", {
+    timeZone: "America/Argentina/Buenos_Aires",
+    year: "numeric",
+    month: "numeric",
+  }).formatToParts(new Date());
+  const get = (type: Intl.DateTimeFormatPartTypes) =>
+    Number(parts.find((part) => part.type === type)?.value);
+  return { anio: get("year"), mes: get("month") };
+}
 
 const initialFilters: AdminFilters = {
   empresaId: null,
   empresaNombre: null,
   nemo: null,
-  anio: now.getFullYear(),
-  mes: now.getMonth() + 1,
+  ...getArgDateParts(),
 };
 
 const AdminContext = createContext<AdminContextValue | null>(null);

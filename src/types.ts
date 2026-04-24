@@ -13,11 +13,13 @@ export type EmpresaData = {
   comercializador: string;
   plan_activo: PlanId;
   miembro_desde: string;
-  acuerdo_mensual_mwh: number;
+  acuerdo_mensual_mwh: number | null;
 };
 
 export type ComplianceRow = {
   mes: string;
+  anio: number;
+  mes_numero: number;
   demanda_mwh: number;
   mater_mwh: number;
   spot_mwh: number;
@@ -25,10 +27,14 @@ export type ComplianceRow = {
   acuerdo_mes_mwh: number;
   cumple: boolean;
   alerta: boolean;
+  dato_sospechoso: boolean;
+  sospechoso_motivo: string | null;
 };
 
 export type CostRow = {
   mes: string;
+  anio: number;
+  mes_numero: number;
   tipo: "historico" | "proyeccion";
   costo_usd_mwh: number;
   demanda_mwh: number;
@@ -46,19 +52,27 @@ export type ContratoView = {
   tipo: "RPB" | "RPE" | "BAS";
   generador: string;
   precio_usd_mwh: number;
-  score: "optimo" | "en_rango" | "caro" | "muy_caro";
+  score: "optimo" | "en_rango" | "caro" | "muy_caro" | "sin_referencia";
   vigencia: string;
   energia_anual_mwh: number;
 };
 
 export type ContratosData = {
   precio_mercado_referencia: number;
+  precio_mercado_por_tipo: { RPB: number; RPE: number; BAS: number };
   contratos: ContratoView[];
+};
+
+export type DesgloseConcepto = {
+  concepto: string;
+  valor_usd: number;
+  estimado: boolean;
 };
 
 export type CostosData = {
   serie: CostRow[];
-  desglose_oct_2025: { concepto: string; valor_usd: number }[];
+  desglose_mes: DesgloseConcepto[];
+  desglose_periodo: { anio: number; mes: number } | null;
 };
 
 export type AdminRawData = {

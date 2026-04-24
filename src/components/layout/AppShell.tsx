@@ -27,7 +27,7 @@ const initialEmpresa: EmpresaData = {
   comercializador: "",
   plan_activo: "compliance",
   miembro_desde: "",
-  acuerdo_mensual_mwh: 0,
+  acuerdo_mensual_mwh: null,
 };
 
 const nav = [

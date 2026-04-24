@@ -32,6 +32,10 @@ type DashboardTab = "compliance" | "contratos" | "costos" | "raw";
 
 const monthLabels = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 
+function isRowInYear(row: ComplianceRow, anio: number) {
+  return row.anio === anio;
+}
+
 const emptyEmpresa: EmpresaData = {
   id: "",
   razon_social: "",
@@ -40,17 +44,19 @@ const emptyEmpresa: EmpresaData = {
   comercializador: "",
   plan_activo: "compliance",
   miembro_desde: "",
-  acuerdo_mensual_mwh: 0,
+  acuerdo_mensual_mwh: null,
 };
 
 const emptyContratos: ContratosData = {
   precio_mercado_referencia: 0,
+  precio_mercado_por_tipo: { RPB: 0, RPE: 0, BAS: 0 },
   contratos: [],
 };
 
 const emptyCostos: CostosData = {
   serie: [],
-  desglose_oct_2025: [],
+  desglose_mes: [],
+  desglose_periodo: null,
 };
 
 const initialData = {
@@ -75,7 +81,7 @@ function selectedMonthLabel(mes: number) {
 }
 
 function isRowForPeriod(row: ComplianceRow, anio: number, mes: number) {
-  return row.mes === `${selectedMonthLabel(mes)} ${anio}`;
+  return row.anio === anio && row.mes_numero === mes;
 }
 
 const tabs: Array<{
@@ -100,8 +106,8 @@ export default function AdminDashboard() {
     const [empresa, compliance, contratos, costos, raw] = await Promise.all([
       getEmpresaData(filters.empresaId),
       getComplianceData(filters.empresaId),
-      getContratosData(filters.empresaId),
-      getCostosData(filters.empresaId),
+      getContratosData(filters.empresaId, filters.anio, filters.mes),
+      getCostosData(filters.empresaId, filters.anio, filters.mes),
       getAdminRawData(filters.empresaId, filters.anio, filters.mes),
     ]);
 
@@ -112,11 +118,14 @@ export default function AdminDashboard() {
 
   const yearOptions = useMemo(() => {
     const currentYear = new Date().getFullYear();
-    return Array.from({ length: 7 }, (_, index) => currentYear + 1 - index);
-  }, []);
+    const available = new Set<number>(data.compliance.map((row) => row.anio).filter(Boolean));
+    available.add(filters.anio);
+    available.add(currentYear);
+    return Array.from(available).sort((a, b) => b - a);
+  }, [data.compliance, filters.anio]);
 
   const yearRows = useMemo(
-    () => data.compliance.filter((row) => row.mes.endsWith(` ${filters.anio}`)),
+    () => data.compliance.filter((row) => isRowInYear(row, filters.anio)),
     [data.compliance, filters.anio],
   );
 
@@ -125,16 +134,88 @@ export default function AdminDashboard() {
     [filters.anio, filters.mes, yearRows],
   );
 
-  const annualRenewable = useMemo(() => {
-    const totalDemand = yearRows.reduce((sum, row) => sum + row.demanda_mwh, 0);
-    const totalMater = yearRows.reduce((sum, row) => sum + row.mater_mwh, 0);
-    return totalDemand ? Number(((totalMater / totalDemand) * 100).toFixed(2)) : 0;
-  }, [yearRows]);
+  const cleanYearRows = useMemo(() => yearRows.filter((row) => !row.dato_sospechoso), [yearRows]);
+  const sospechososAnio = yearRows.length - cleanYearRows.length;
 
-  const complianceTone = annualRenewable >= 20 ? "success" : "warning";
+  const annualRenewable = useMemo(() => {
+    const totalDemand = cleanYearRows.reduce((sum, row) => sum + row.demanda_mwh, 0);
+    const totalMater = cleanYearRows.reduce((sum, row) => sum + row.mater_mwh, 0);
+    if (!totalDemand) return 0;
+    const pct = (totalMater / totalDemand) * 100;
+    return Number(Math.max(0, Math.min(100, pct)).toFixed(2));
+  }, [cleanYearRows]);
+
+  const ytdMonthsCovered = cleanYearRows.length;
+
+  const prevYearSameCutoff = useMemo(() => {
+    const monthsInYear = new Set(cleanYearRows.map((row) => row.mes_numero));
+    if (!monthsInYear.size) return 0;
+    const prevRows = data.compliance.filter(
+      (row) =>
+        row.anio === filters.anio - 1 &&
+        monthsInYear.has(row.mes_numero) &&
+        !row.dato_sospechoso,
+    );
+    const totalDemand = prevRows.reduce((sum, row) => sum + row.demanda_mwh, 0);
+    const totalMater = prevRows.reduce((sum, row) => sum + row.mater_mwh, 0);
+    return totalDemand ? Number(((totalMater / totalDemand) * 100).toFixed(2)) : 0;
+  }, [data.compliance, filters.anio, cleanYearRows]);
+
+  const projectedYearClose = useMemo(() => {
+    if (!cleanYearRows.length || cleanYearRows.length === 12) return annualRenewable;
+    const coveredMonths = new Set(cleanYearRows.map((row) => row.mes_numero));
+    const missingMonths = Array.from({ length: 12 }, (_, i) => i + 1).filter(
+      (m) => !coveredMonths.has(m),
+    );
+    const historyByMonth = new Map<number, { mater: number; demanda: number }[]>();
+    data.compliance.forEach((row) => {
+      if (row.anio >= filters.anio || row.dato_sospechoso) return;
+      const bucket = historyByMonth.get(row.mes_numero) ?? [];
+      bucket.push({ mater: row.mater_mwh, demanda: row.demanda_mwh });
+      historyByMonth.set(row.mes_numero, bucket);
+    });
+    const avgDemandYtd = cleanYearRows.reduce((sum, row) => sum + row.demanda_mwh, 0) / cleanYearRows.length;
+    const avgMaterYtd = cleanYearRows.reduce((sum, row) => sum + row.mater_mwh, 0) / cleanYearRows.length;
+    let projectedMater = cleanYearRows.reduce((sum, row) => sum + row.mater_mwh, 0);
+    let projectedDemand = cleanYearRows.reduce((sum, row) => sum + row.demanda_mwh, 0);
+    missingMonths.forEach((m) => {
+      const bucket = historyByMonth.get(m) ?? [];
+      if (bucket.length) {
+        projectedMater += bucket.reduce((sum, r) => sum + r.mater, 0) / bucket.length;
+        projectedDemand += bucket.reduce((sum, r) => sum + r.demanda, 0) / bucket.length;
+      } else {
+        projectedMater += avgMaterYtd;
+        projectedDemand += avgDemandYtd;
+      }
+    });
+    if (!projectedDemand) return 0;
+    const pct = (projectedMater / projectedDemand) * 100;
+    return Number(Math.max(0, Math.min(100, pct)).toFixed(2));
+  }, [annualRenewable, data.compliance, filters.anio, cleanYearRows]);
+
+  const annualTrend: "up" | "down" | "neutral" =
+    !prevYearSameCutoff || Math.abs(annualRenewable - prevYearSameCutoff) < 0.5
+      ? "neutral"
+      : annualRenewable > prevYearSameCutoff
+        ? "up"
+        : "down";
+
+  const selectedIndex = yearRows.findIndex(
+    (row) => row.anio === filters.anio && row.mes_numero === filters.mes,
+  );
+  const previousRow = selectedIndex > 0 ? yearRows[selectedIndex - 1] : null;
+  const materTrend: "up" | "down" | "neutral" = !previousRow || !selectedRow
+    ? "neutral"
+    : selectedRow.mater_mwh > previousRow.mater_mwh + 0.5
+      ? "up"
+      : selectedRow.mater_mwh < previousRow.mater_mwh - 0.5
+        ? "down"
+        : "neutral";
+
+  const complianceTone = projectedYearClose >= 20 ? "success" : "warning";
   const selectedCostSeries =
     data.costos.serie.find(
-      (row) => row.tipo === "historico" && row.mes === `${selectedMonthLabel(filters.mes)} ${filters.anio}`,
+      (row) => row.tipo === "historico" && row.anio === filters.anio && row.mes_numero === filters.mes,
     ) ?? null;
 
   if (!filters.empresaId) {
@@ -164,6 +245,17 @@ export default function AdminDashboard() {
       {error ? (
         <section className="rounded border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-ivory">
           {error}
+        </section>
+      ) : null}
+
+      {selectedRow?.dato_sospechoso ? (
+        <section className="rounded border border-alert/40 bg-alert/10 px-4 py-3 text-sm text-ivory">
+          <strong>Dato sospechoso en el mes seleccionado.</strong>{" "}
+          {selectedRow.sospechoso_motivo ?? "Revisar archivo CAMMESA original."}
+        </section>
+      ) : sospechososAnio > 0 ? (
+        <section className="rounded border border-alert/30 bg-alert/5 px-4 py-2 text-xs text-mist">
+          {sospechososAnio} mes{sospechososAnio > 1 ? "es" : ""} del año con datos marcados sospechosos. Excluidos del cálculo YTD / proyección.
         </section>
       ) : null}
 
@@ -222,15 +314,20 @@ export default function AdminDashboard() {
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard
           borderColor="green"
-          label="% renovable acumulado"
-          subtext={`Año ${filters.anio}`}
-          trend={annualRenewable >= 20 ? "up" : "neutral"}
+          label="% renovable YTD"
+          subtext={`${filters.anio} · ${ytdMonthsCovered}/12 meses · cierre proy. ${percent(projectedYearClose, 2)}`}
+          trend={annualTrend}
           value={percent(annualRenewable, 2)}
         />
         <StatCard
           borderColor="blue"
           label="MWh MATER del mes"
-          subtext={`${selectedMonthLabel(filters.mes)} ${filters.anio}`}
+          subtext={
+            previousRow
+              ? `${selectedMonthLabel(filters.mes)} ${filters.anio} · prev ${number(previousRow.mater_mwh, 2)} MWh`
+              : `${selectedMonthLabel(filters.mes)} ${filters.anio}`
+          }
+          trend={materTrend}
           value={`${number(selectedRow?.mater_mwh ?? data.raw?.mater_mwh ?? 0, 2)} MWh`}
         />
         <StatCard
@@ -242,13 +339,13 @@ export default function AdminDashboard() {
         <div className="rounded-lg border border-navy-border border-t-2 border-t-forest bg-navy-medium p-5 shadow-panel">
           <p className="text-xs font-semibold uppercase text-mist">Estado de cumplimiento</p>
           <div className="mt-3 flex items-center gap-3">
-            <Badge tone={complianceTone}>{annualRenewable >= 20 ? "Cumple" : "Riesgo"}</Badge>
+            <Badge tone={complianceTone}>{projectedYearClose >= 20 ? "Cumple" : "Riesgo"}</Badge>
             <strong className="font-syne text-xl font-bold text-ivory">
-              {annualRenewable >= 20 ? "Sobre 20%" : "Debajo de 20%"}
+              {projectedYearClose >= 20 ? "Proyección sobre 20%" : "Proyección bajo 20%"}
             </strong>
           </div>
           <p className="mt-3 text-sm text-mist">
-            Basado en el acumulado del año seleccionado para la empresa activa.
+            YTD {percent(annualRenewable, 2)} ({ytdMonthsCovered}/12 meses). Cierre proyectado {percent(projectedYearClose, 2)} con estacionalidad histórica.
           </p>
         </div>
       </div>
@@ -272,19 +369,29 @@ export default function AdminDashboard() {
           <Panel className="p-5">
             <div className="flex items-center justify-between gap-3">
               <h3 className="font-syne text-base font-bold text-ivory">Compliance anual</h3>
-              <Badge tone={complianceTone}>{annualRenewable >= 20 ? "Cumple" : "Riesgo"}</Badge>
+              <Badge tone={complianceTone}>{projectedYearClose >= 20 ? "Cumple" : "Riesgo"}</Badge>
             </div>
-            <ComplianceGauge value={annualRenewable} />
-            <div className="grid gap-3 sm:grid-cols-2">
+            <ComplianceGauge value={projectedYearClose} />
+            <div className="grid gap-3 sm:grid-cols-3">
               <div className="rounded border border-navy-border bg-navy/45 p-4">
-                <p className="text-xs text-mist">Objetivo</p>
-                <p className="number mt-1 font-syne text-2xl font-bold text-ivory">20%</p>
+                <p className="text-xs text-mist">YTD</p>
+                <p className="number mt-1 font-syne text-2xl font-bold text-ivory">
+                  {percent(annualRenewable, 2)}
+                </p>
+                <p className="mt-1 text-[11px] text-mist">{ytdMonthsCovered}/12 meses</p>
               </div>
               <div className="rounded border border-navy-border bg-navy/45 p-4">
-                <p className="text-xs text-mist">Margen</p>
+                <p className="text-xs text-mist">Cierre proy.</p>
+                <p className="number mt-1 font-syne text-2xl font-bold text-ivory">
+                  {percent(projectedYearClose, 2)}
+                </p>
+                <p className="mt-1 text-[11px] text-mist">Objetivo 20%</p>
+              </div>
+              <div className="rounded border border-navy-border bg-navy/45 p-4">
+                <p className="text-xs text-mist">Margen cierre</p>
                 <p className="number mt-1 font-syne text-2xl font-bold text-forest-light">
-                  {annualRenewable >= 20 ? "+" : ""}
-                  {number(annualRenewable - 20, 2)} pts
+                  {projectedYearClose >= 20 ? "+" : ""}
+                  {number(projectedYearClose - 20, 2)} pts
                 </p>
               </div>
             </div>
@@ -310,14 +417,24 @@ export default function AdminDashboard() {
                 <tbody className="divide-y divide-navy-border">
                   {yearRows.map((row) => (
                     <tr className="text-mist" key={row.mes}>
-                      <td className="px-5 py-3 font-medium text-ivory">{row.mes}</td>
+                      <td className="px-5 py-3 font-medium text-ivory">
+                        {row.mes}
+                        {row.dato_sospechoso ? (
+                          <span
+                            className="ml-2 rounded border border-alert/45 bg-alert/10 px-1.5 py-0.5 text-[10px] uppercase text-alert"
+                            title={row.sospechoso_motivo ?? ""}
+                          >
+                            sospechoso
+                          </span>
+                        ) : null}
+                      </td>
                       <td className="number px-5 py-3">{number(row.demanda_mwh, 2)} MWh</td>
                       <td className="number px-5 py-3">{number(row.mater_mwh, 2)} MWh</td>
                       <td className="number px-5 py-3">{number(row.spot_mwh, 2)} MWh</td>
                       <td className="number px-5 py-3">{percent(row.porcentaje_renovable, 2)}</td>
                       <td className="px-5 py-3">
-                        <Badge tone={row.cumple ? "success" : "warning"}>
-                          {row.cumple ? "Cumple" : "Riesgo"}
+                        <Badge tone={row.dato_sospechoso ? "neutral" : row.cumple ? "success" : "warning"}>
+                          {row.dato_sospechoso ? "N/A" : row.cumple ? "Cumple" : "Riesgo"}
                         </Badge>
                       </td>
                     </tr>
@@ -351,7 +468,15 @@ export default function AdminDashboard() {
                 <div className="p-5" key={contract.id}>
                   <div className="flex items-center justify-between gap-3">
                     <strong className="font-syne text-lg text-ivory">{contract.tipo}</strong>
-                    <Badge tone={contract.score === "optimo" || contract.score === "en_rango" ? "success" : "warning"}>
+                    <Badge
+                      tone={
+                        contract.score === "optimo" || contract.score === "en_rango"
+                          ? "success"
+                          : contract.score === "sin_referencia"
+                            ? "neutral"
+                            : "warning"
+                      }
+                    >
                       {contract.score.replace("_", " ")}
                     </Badge>
                   </div>

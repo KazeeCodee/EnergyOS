@@ -8,7 +8,11 @@ import { getContratosData } from "../services/energyData";
 import type { ContratosData } from "../types";
 import { usd } from "../utils/format";
 
-const emptyContratos: ContratosData = { precio_mercado_referencia: 0, contratos: [] };
+const emptyContratos: ContratosData = {
+  precio_mercado_referencia: 0,
+  precio_mercado_por_tipo: { RPB: 0, RPE: 0, BAS: 0 },
+  contratos: [],
+};
 
 export default function Contracts() {
   const { data: contratosData, error, loading } = useAsyncData(getContratosData, emptyContratos);
@@ -42,8 +46,12 @@ export default function Contracts() {
         <StatCard
           borderColor="yellow"
           label="Referencia mercado"
-          subtext="Variables relevantes MEM"
-          value={`${usd(contratosData.precio_mercado_referencia, 2)}/MWh`}
+          subtext={contratosData.precio_mercado_referencia > 0 ? "Variables relevantes MEM" : "Sin datos para el periodo"}
+          value={
+            contratosData.precio_mercado_referencia > 0
+              ? `${usd(contratosData.precio_mercado_referencia, 2)}/MWh`
+              : "—"
+          }
         />
       </div>
 
@@ -65,7 +73,15 @@ export default function Contracts() {
                   <strong className="font-syne text-lg text-ivory">
                     {contract.tipo}
                   </strong>
-                  <span className="rounded border border-forest/35 bg-forest/15 px-2 py-1 text-xs uppercase text-forest-light">
+                  <span
+                    className={`rounded border px-2 py-1 text-xs uppercase ${
+                      contract.score === "optimo" || contract.score === "en_rango"
+                        ? "border-forest/35 bg-forest/15 text-forest-light"
+                        : contract.score === "sin_referencia"
+                          ? "border-mist/30 bg-navy text-mist"
+                          : "border-alert/45 bg-alert/10 text-alert"
+                    }`}
+                  >
                     {contract.score.replace("_", " ")}
                   </span>
                 </div>

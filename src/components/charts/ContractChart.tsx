@@ -24,12 +24,14 @@ export function ContractChart({ contratos }: { contratos: ContratosData }) {
         <XAxis dataKey="name" fontSize={12} stroke={chart.axis} tick={{ fill: chart.axis }} />
         <YAxis fontSize={12} stroke={chart.axis} tick={{ fill: chart.axis }} unit=" USD" />
         <Tooltip contentStyle={tooltipStyle} cursor={{ fill: "rgba(245,242,235,0.04)" }} />
-        <ReferenceLine
-          label={{ fill: chart.axis, fontSize: 12, position: "insideTopRight", value: "Mercado" }}
-          stroke={chart.alert}
-          strokeDasharray="4 4"
-          y={contratos.precio_mercado_referencia}
-        />
+        {contratos.precio_mercado_referencia > 0 ? (
+          <ReferenceLine
+            label={{ fill: chart.axis, fontSize: 12, position: "insideTopRight", value: "Mercado" }}
+            stroke={chart.alert}
+            strokeDasharray="4 4"
+            y={contratos.precio_mercado_referencia}
+          />
+        ) : null}
         <Bar dataKey="precio" fill={chart.forest} name="Precio USD/MWh" radius={[4, 4, 0, 0]} />
       </BarChart>
     </ResponsiveContainer>

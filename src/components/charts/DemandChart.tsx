@@ -2,6 +2,7 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  Cell,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -28,8 +29,24 @@ export function DemandChart({ data }: { data: ComplianceRow[] }) {
           unit=" MWh"
         />
         <Tooltip contentStyle={tooltipStyle} cursor={{ fill: "rgba(26,122,74,0.08)" }} />
-        <Bar dataKey="mater_mwh" fill={chart.forest} name="MATER" radius={[3, 3, 0, 0]} stackId="a" />
-        <Bar dataKey="spot_mwh" fill={chart.alert} name="SPOT" radius={[3, 3, 0, 0]} stackId="a" />
+        <Bar dataKey="mater_mwh" name="MATER" radius={[3, 3, 0, 0]} stackId="a">
+          {data.map((row) => (
+            <Cell
+              fill={row.dato_sospechoso ? "#7A8797" : chart.forest}
+              fillOpacity={row.dato_sospechoso ? 0.4 : 1}
+              key={`mater-${row.mes}`}
+            />
+          ))}
+        </Bar>
+        <Bar dataKey="spot_mwh" name="SPOT" radius={[3, 3, 0, 0]} stackId="a">
+          {data.map((row) => (
+            <Cell
+              fill={row.dato_sospechoso ? "#B7791F" : chart.alert}
+              fillOpacity={row.dato_sospechoso ? 0.4 : 1}
+              key={`spot-${row.mes}`}
+            />
+          ))}
+        </Bar>
       </BarChart>
     </ResponsiveContainer>
   );

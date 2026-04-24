@@ -1,15 +1,17 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export function useAsyncData<T>(loader: () => Promise<T>, initialData: T) {
   const [data, setData] = useState<T>(initialData);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const loaderRef = useRef(loader);
+  loaderRef.current = loader;
 
   useEffect(() => {
     let active = true;
     setLoading(true);
     setError("");
-    loader()
+    loaderRef.current()
       .then((result) => {
         if (active) setData(result);
       })

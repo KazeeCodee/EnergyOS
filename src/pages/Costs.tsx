@@ -11,7 +11,7 @@ import type { CostosData } from "../types";
 import { usd } from "../utils/format";
 
 const colors = ["#168056", "#B7791F", "#356CA5", "#7A8797", "#57B887"];
-const emptyCostos: CostosData = { serie: [], desglose_oct_2025: [] };
+const emptyCostos: CostosData = { serie: [], desglose_mes: [], desglose_periodo: null };
 
 export default function Costs() {
   const { data: costos, error, loading } = useAsyncData(getCostosData, emptyCostos);
@@ -72,13 +72,13 @@ export default function Costs() {
             <ResponsiveContainer height="100%" width="100%">
               <PieChart>
                 <Pie
-                  data={costos.desglose_oct_2025}
+                  data={costos.desglose_mes}
                   dataKey="valor_usd"
                   innerRadius={58}
                   outerRadius={88}
                   paddingAngle={2}
                 >
-                  {costos.desglose_oct_2025.map((item, index) => (
+                  {costos.desglose_mes.map((item, index) => (
                     <Cell fill={colors[index % colors.length]} key={item.concepto} />
                   ))}
                 </Pie>
@@ -87,7 +87,7 @@ export default function Costs() {
             </ResponsiveContainer>
           </div>
           <div className="mt-4 space-y-3">
-            {costos.desglose_oct_2025.map((item, index) => (
+            {costos.desglose_mes.map((item, index) => (
               <div className="flex justify-between gap-3 text-sm" key={item.concepto}>
                 <span className="flex items-center gap-2 text-mist">
                   <span
@@ -95,6 +95,11 @@ export default function Costs() {
                     style={{ backgroundColor: colors[index % colors.length] }}
                   />
                   {item.concepto}
+                  {item.estimado ? (
+                    <span className="rounded border border-mist/30 px-1.5 py-0.5 text-[10px] uppercase text-mist">
+                      estimado
+                    </span>
+                  ) : null}
                 </span>
                 <strong className="number text-ivory">{usd(item.valor_usd)}</strong>
               </div>

@@ -2,6 +2,7 @@ import {
   Building2,
   CalendarRange,
   Database,
+  LayoutGrid,
   LogOut,
   RefreshCcw,
   Upload,
@@ -22,6 +23,7 @@ const monthLabels = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Se
 
 const adminNav = [
   { to: "/admin/empresas", label: "Empresas", icon: Building2 },
+  { to: "/admin/consolidado", label: "Consolidado", icon: LayoutGrid },
   { to: "/admin/carga-mensual", label: "Carga mensual", icon: Upload },
   { to: "/admin/corridas", label: "Corridas", icon: CalendarRange },
   { to: "/admin/datos-raw", label: "Datos RAW", icon: Database },

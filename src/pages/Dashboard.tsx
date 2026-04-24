@@ -25,13 +25,19 @@ const emptyEmpresa: EmpresaData = {
   comercializador: "",
   plan_activo: "compliance",
   miembro_desde: "",
-  acuerdo_mensual_mwh: 0,
+  acuerdo_mensual_mwh: null,
 };
-const emptyContratos: ContratosData = { precio_mercado_referencia: 0, contratos: [] };
-const emptyCostos: CostosData = { serie: [], desglose_oct_2025: [] };
+const emptyContratos: ContratosData = {
+  precio_mercado_referencia: 0,
+  precio_mercado_por_tipo: { RPB: 0, RPE: 0, BAS: 0 },
+  contratos: [],
+};
+const emptyCostos: CostosData = { serie: [], desglose_mes: [], desglose_periodo: null };
 const emptyMercado: MercadoData = { mem_mix: [], mater_spot: [] };
 const emptyCompliance: ComplianceRow = {
   mes: "",
+  anio: 0,
+  mes_numero: 0,
   demanda_mwh: 0,
   mater_mwh: 0,
   spot_mwh: 0,
@@ -39,6 +45,8 @@ const emptyCompliance: ComplianceRow = {
   acuerdo_mes_mwh: 0,
   cumple: false,
   alerta: false,
+  dato_sospechoso: false,
+  sospechoso_motivo: null,
 };
 
 async function loadDashboardData() {
@@ -97,7 +105,11 @@ export default function Dashboard() {
         <StatCard
           borderColor="green"
           label="Precio ponderado"
-          subtext={`Mercado ref. ${usd(data.contratos.precio_mercado_referencia, 2)}/MWh`}
+          subtext={
+            data.contratos.precio_mercado_referencia > 0
+              ? `Mercado ref. ${usd(data.contratos.precio_mercado_referencia, 2)}/MWh`
+              : "Sin referencia de mercado"
+          }
           trend="down"
           value={`${usd(latestCost?.costo_usd_mwh ?? 0, 2)}/MWh`}
         />

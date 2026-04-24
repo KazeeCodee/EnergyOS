@@ -24,6 +24,7 @@ type MensualRow = {
   demanda_total_mwh: number | string;
   mater_mwh: number | string;
   porcentaje_renovable: number | string;
+  dato_sospechoso?: boolean | null;
 };
 
 type CreateEmpresaPayload = {
@@ -72,7 +73,9 @@ function num(value: number | string | null | undefined) {
 }
 
 function monthLabel(anio: number, mes: number) {
-  return `${monthLabels[mes - 1] ?? mes} ${anio}`;
+  const valid = Number.isInteger(mes) && mes >= 1 && mes <= 12;
+  const label = valid ? monthLabels[mes - 1] : `M${mes}`;
+  return `${label} ${anio}`;
 }
 
 export async function isCurrentUserAdmin() {
@@ -133,37 +136,8 @@ export async function loadAdminCargaMensual() {
   if (archivosResponse.error) throw archivosResponse.error;
   if (procesamientosResponse.error) throw procesamientosResponse.error;
 
-  const procesamientos = ((procesamientosResponse.data ?? []) as unknown[]) as AdminProcesamiento[];
-  const procesamientoIds = procesamientos.map((item) => item.id);
-
-  const procesamientoEmpresasResponse = procesamientoIds.length
-    ? await supabase
-        .from("procesamiento_empresas")
-        .select("*,empresa:empresas(razon_social)")
-        .in("procesamiento_id", procesamientoIds)
-        .order("created_at", { ascending: true })
-    : { data: [], error: null };
-
-  if (procesamientoEmpresasResponse.error) throw procesamientoEmpresasResponse.error;
-
-  const empresasByProcesamiento = new Map<string, AdminProcesamientoEmpresa[]>();
-  for (const row of (procesamientoEmpresasResponse.data ?? []) as ProcesoEmpresaRow[]) {
-    const empresaRow: AdminProcesamientoEmpresa = {
-      id: row.id,
-      procesamiento_id: row.procesamiento_id,
-      empresa_id: row.empresa_id,
-      empresa_nombre: row.empresa?.razon_social?.trim() || "Empresa sin referencia",
-      estado: row.estado,
-      mensaje: row.mensaje,
-      demanda_total_mwh: num(row.demanda_total_mwh),
-      mater_mwh: num(row.mater_mwh),
-      spot_mwh: num(row.spot_mwh),
-      created_at: row.created_at,
-    };
-    const current = empresasByProcesamiento.get(row.procesamiento_id) ?? [];
-    current.push(empresaRow);
-    empresasByProcesamiento.set(row.procesamiento_id, current);
-  }
+  const procesamientos = (procesamientosResponse.data ?? []) as unknown as AdminProcesamiento[];
+  const empresasByProcesamiento = await fetchProcesamientoEmpresas(procesamientos.map((p) => p.id));
 
   return {
     archivos: (archivosResponse.data ?? []) as AdminArchivo[],
@@ -178,13 +152,65 @@ export async function loadAdminCargaMensual() {
   };
 }
 
+function indexByEmpresa<T extends { empresa_id: string }>(rows: T[]): Map<string, T[]> {
+  const map = new Map<string, T[]>();
+  rows.forEach((row) => {
+    const bucket = map.get(row.empresa_id) ?? [];
+    bucket.push(row);
+    map.set(row.empresa_id, bucket);
+  });
+  return map;
+}
+
+async function fetchProcesamientoEmpresas(
+  procesamientoIds: string[],
+): Promise<Map<string, AdminProcesamientoEmpresa[]>> {
+  const result = new Map<string, AdminProcesamientoEmpresa[]>();
+  if (!procesamientoIds.length) return result;
+
+  const { data, error } = await supabase
+    .from("procesamiento_empresas")
+    .select("*,empresa:empresas(razon_social)")
+    .in("procesamiento_id", procesamientoIds)
+    .order("created_at", { ascending: true });
+  if (error) throw error;
+
+  (data as ProcesoEmpresaRow[] | null ?? []).forEach((row) => {
+    const empresaRow: AdminProcesamientoEmpresa = {
+      id: row.id,
+      procesamiento_id: row.procesamiento_id,
+      empresa_id: row.empresa_id,
+      empresa_nombre: row.empresa?.razon_social?.trim() || "Empresa sin referencia",
+      estado: row.estado,
+      mensaje: row.mensaje,
+      demanda_total_mwh: num(row.demanda_total_mwh),
+      mater_mwh: num(row.mater_mwh),
+      spot_mwh: num(row.spot_mwh),
+      created_at: row.created_at,
+    };
+    const current = result.get(row.procesamiento_id) ?? [];
+    current.push(empresaRow);
+    result.set(row.procesamiento_id, current);
+  });
+  return result;
+}
+
+function pickLatestClean(rows: MensualRow[]): Map<string, MensualRow> {
+  const map = new Map<string, MensualRow>();
+  rows.forEach((row) => {
+    if (row.dato_sospechoso) return;
+    if (!map.has(row.empresa_id)) map.set(row.empresa_id, row);
+  });
+  return map;
+}
+
 export async function loadAdminEmpresas() {
   const [empresasResponse, nemosResponse, mensualesResponse] = await Promise.all([
     supabase.from("empresas").select("id,razon_social,tipo_usuario,plan_activo,comercializador").order("razon_social"),
     supabase.from("nemos").select("empresa_id,nemo").eq("activo", true),
     supabase
       .from("datos_mensuales")
-      .select("empresa_id,anio,mes,demanda_total_mwh,mater_mwh,porcentaje_renovable")
+      .select("empresa_id,anio,mes,demanda_total_mwh,mater_mwh,porcentaje_renovable,dato_sospechoso")
       .order("anio", { ascending: false })
       .order("mes", { ascending: false }),
   ]);
@@ -196,11 +222,8 @@ export async function loadAdminEmpresas() {
   const empresas = (empresasResponse.data ?? []) as EmpresaRow[];
   const nemos = (nemosResponse.data ?? []) as { empresa_id: string; nemo: string }[];
   const mensuales = (mensualesResponse.data ?? []) as MensualRow[];
-  const latestByEmpresa = new Map<string, MensualRow>();
-
-  mensuales.forEach((row) => {
-    if (!latestByEmpresa.has(row.empresa_id)) latestByEmpresa.set(row.empresa_id, row);
-  });
+  const nemosByEmpresa = indexByEmpresa(nemos);
+  const latestByEmpresa = pickLatestClean(mensuales);
 
   return empresas.map<AdminEmpresaRow>((empresa) => {
     const latest = latestByEmpresa.get(empresa.id);
@@ -210,7 +233,7 @@ export async function loadAdminEmpresas() {
       tipo_usuario: empresa.tipo_usuario,
       plan_activo: empresa.plan_activo,
       comercializador: empresa.comercializador ?? "",
-      nemos: nemos.filter((row) => row.empresa_id === empresa.id).map((row) => row.nemo),
+      nemos: (nemosByEmpresa.get(empresa.id) ?? []).map((row) => row.nemo),
       contratos: 0,
       ultimo_mes: latest ? monthLabel(latest.anio, latest.mes) : "Sin datos",
       demanda_total_mwh: num(latest?.demanda_total_mwh),
@@ -220,6 +243,7 @@ export async function loadAdminEmpresas() {
 }
 
 export async function loadAdminDashboard() {
+  const today = new Date().toISOString().slice(0, 10);
   const [
     empresasResponse,
     nemosResponse,
@@ -230,8 +254,12 @@ export async function loadAdminDashboard() {
   ] = await Promise.all([
     supabase.from("empresas").select("id,razon_social,tipo_usuario,plan_activo,comercializador").order("razon_social"),
     supabase.from("nemos").select("empresa_id,nemo").eq("activo", true),
-    supabase.from("contratos").select("empresa_id,id").eq("activo", true),
-    supabase.from("datos_mensuales").select("empresa_id,anio,mes,demanda_total_mwh,mater_mwh,porcentaje_renovable").order("anio", { ascending: false }).order("mes", { ascending: false }),
+    supabase.from("contratos").select("empresa_id,id").eq("activo", true).gte("vigencia_fin", today),
+    supabase
+      .from("datos_mensuales")
+      .select("empresa_id,anio,mes,demanda_total_mwh,mater_mwh,porcentaje_renovable,dato_sospechoso")
+      .order("anio", { ascending: false })
+      .order("mes", { ascending: false }),
     supabase.from("cammesa_archivos").select("*").order("created_at", { ascending: false }).limit(20),
     supabase
       .from("procesamientos")
@@ -255,44 +283,26 @@ export async function loadAdminDashboard() {
     if (response.error) throw response.error;
   }
 
-  const procesamientos = ((procesamientosResponse.data ?? []) as unknown[]) as AdminProcesamiento[];
-  const procesamientoIds = procesamientos.map((item) => item.id);
-  const procesamientoEmpresasResponse = procesamientoIds.length
-    ? await supabase
-        .from("procesamiento_empresas")
-        .select("*,empresa:empresas(razon_social)")
-        .in("procesamiento_id", procesamientoIds)
-        .order("created_at", { ascending: true })
-    : { data: [], error: null };
-  if (procesamientoEmpresasResponse.error) throw procesamientoEmpresasResponse.error;
-
-  const empresasByProcesamiento = new Map<string, AdminProcesamientoEmpresa[]>();
-  for (const row of (procesamientoEmpresasResponse.data ?? []) as ProcesoEmpresaRow[]) {
-    const empresaRow: AdminProcesamientoEmpresa = {
-      id: row.id,
-      procesamiento_id: row.procesamiento_id,
-      empresa_id: row.empresa_id,
-      empresa_nombre: row.empresa?.razon_social?.trim() || "Empresa sin referencia",
-      estado: row.estado,
-      mensaje: row.mensaje,
-      demanda_total_mwh: num(row.demanda_total_mwh),
-      mater_mwh: num(row.mater_mwh),
-      spot_mwh: num(row.spot_mwh),
-      created_at: row.created_at,
-    };
-    const current = empresasByProcesamiento.get(row.procesamiento_id) ?? [];
-    current.push(empresaRow);
-    empresasByProcesamiento.set(row.procesamiento_id, current);
-  }
+  const procesamientos = (procesamientosResponse.data ?? []) as unknown as AdminProcesamiento[];
+  const empresasByProcesamiento = await fetchProcesamientoEmpresas(procesamientos.map((p) => p.id));
 
   const empresas = (empresasResponse.data ?? []) as EmpresaRow[];
   const nemos = (nemosResponse.data ?? []) as { empresa_id: string; nemo: string }[];
   const contratos = (contratosResponse.data ?? []) as { empresa_id: string }[];
   const mensuales = (mensualesResponse.data ?? []) as MensualRow[];
-  const latestByEmpresa = new Map<string, MensualRow>();
+  const nemosByEmpresa = indexByEmpresa(nemos);
+  const contratosByEmpresa = indexByEmpresa(contratos);
+  const latestByEmpresa = pickLatestClean(mensuales);
 
+  // Acumulado YTD por empresa (suma meses limpios del año actual)
+  const currentYear = new Date().getFullYear();
+  const ytdByEmpresa = new Map<string, { demanda: number; mater: number }>();
   mensuales.forEach((row) => {
-    if (!latestByEmpresa.has(row.empresa_id)) latestByEmpresa.set(row.empresa_id, row);
+    if (row.dato_sospechoso || row.anio !== currentYear) return;
+    const acc = ytdByEmpresa.get(row.empresa_id) ?? { demanda: 0, mater: 0 };
+    acc.demanda += num(row.demanda_total_mwh);
+    acc.mater += num(row.mater_mwh);
+    ytdByEmpresa.set(row.empresa_id, acc);
   });
 
   const empresaRows: AdminEmpresaRow[] = empresas.map((empresa) => {
@@ -303,25 +313,32 @@ export async function loadAdminDashboard() {
       tipo_usuario: empresa.tipo_usuario,
       plan_activo: empresa.plan_activo,
       comercializador: empresa.comercializador ?? "",
-      nemos: nemos.filter((row) => row.empresa_id === empresa.id).map((row) => row.nemo),
-      contratos: contratos.filter((row) => row.empresa_id === empresa.id).length,
+      nemos: (nemosByEmpresa.get(empresa.id) ?? []).map((row) => row.nemo),
+      contratos: (contratosByEmpresa.get(empresa.id) ?? []).length,
       ultimo_mes: latest ? monthLabel(latest.anio, latest.mes) : "Sin datos",
       demanda_total_mwh: num(latest?.demanda_total_mwh),
       porcentaje_renovable: num(latest?.porcentaje_renovable),
     };
   });
 
-  const latestRows = [...latestByEmpresa.values()];
+  const ytdRows = [...ytdByEmpresa.values()];
+  const totalDemandYtd = ytdRows.reduce((sum, row) => sum + row.demanda, 0);
+  const totalMaterYtd = ytdRows.reduce((sum, row) => sum + row.mater, 0);
+  const promedioRenovable = totalDemandYtd ? (totalMaterYtd / totalDemandYtd) * 100 : 0;
+  const clientesRiesgo = empresas.filter((empresa) => {
+    const ytd = ytdByEmpresa.get(empresa.id);
+    if (!ytd || !ytd.demanda) return false;
+    return (ytd.mater / ytd.demanda) * 100 < 20;
+  }).length;
+
   const stats: AdminStats = {
     empresas: empresas.length,
     nemos: nemos.length,
     contratos: contratos.length,
-    demanda_total_mwh: latestRows.reduce((sum, row) => sum + num(row.demanda_total_mwh), 0),
-    mater_mwh: latestRows.reduce((sum, row) => sum + num(row.mater_mwh), 0),
-    promedio_renovable: latestRows.length
-      ? latestRows.reduce((sum, row) => sum + num(row.porcentaje_renovable), 0) / latestRows.length
-      : 0,
-    clientes_riesgo: latestRows.filter((row) => num(row.porcentaje_renovable) < 20).length,
+    demanda_total_mwh: totalDemandYtd,
+    mater_mwh: totalMaterYtd,
+    promedio_renovable: Number(promedioRenovable.toFixed(2)),
+    clientes_riesgo: clientesRiesgo,
     archivos: (archivosResponse.data ?? []).length,
     procesamientos: (procesamientosResponse.data ?? []).length,
   };
@@ -347,6 +364,14 @@ export async function createEmpresaCliente(payload: CreateEmpresaPayload) {
   return data as { user_id: string; empresa_id: string };
 }
 
+function sanitizeFileName(name: string) {
+  return name
+    .replace(/[^a-zA-Z0-9._-]/g, "_")
+    .replace(/\.{2,}/g, ".")
+    .replace(/^\.+/, "")
+    .slice(0, 180);
+}
+
 export async function uploadCammesaFile(params: {
   file: File;
   tipo: AdminArchivo["tipo"];
@@ -358,11 +383,12 @@ export async function uploadCammesaFile(params: {
   const userId = sessionData.session?.user.id;
   if (!userId) throw new Error("Sesion no disponible");
 
-  const safeName = params.file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const safeName = sanitizeFileName(params.file.name);
+  if (!safeName) throw new Error("Nombre de archivo inválido");
   const path = `${params.anio}/${String(params.mes).padStart(2, "0")}/${params.tipo.toLowerCase()}-${Date.now()}-${safeName}`;
   const { error: uploadError } = await supabase.storage
     .from("cammesa-uploads")
-    .upload(path, params.file, { upsert: true, contentType: params.file.type || undefined });
+    .upload(path, params.file, { upsert: false, contentType: params.file.type || undefined });
   if (uploadError) throw uploadError;
 
   const { data, error } = await supabase
@@ -379,7 +405,11 @@ export async function uploadCammesaFile(params: {
     })
     .select("*")
     .single();
-  if (error) throw error;
+  if (error) {
+    // Rollback manual: borrar archivo huérfano en storage
+    await supabase.storage.from("cammesa-uploads").remove([path]).catch(() => {});
+    throw error;
+  }
   return data as AdminArchivo;
 }
 

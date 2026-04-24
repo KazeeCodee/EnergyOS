@@ -8,9 +8,10 @@ import { percent } from "../../utils/format";
 import { chart } from "./RechartsBase";
 
 export function ComplianceGauge({ value }: { value: number }) {
+  const clamped = Math.max(0, Math.min(100, Number.isFinite(value) ? value : 0));
   const data = [
-    { name: "Cumplimiento", value },
-    { name: "Pendiente", value: Math.max(0, 100 - value) },
+    { name: "Cumplimiento", value: clamped },
+    { name: "Pendiente", value: 100 - clamped },
   ];
 
   return (
@@ -35,7 +36,7 @@ export function ComplianceGauge({ value }: { value: number }) {
       </ResponsiveContainer>
       <div className="absolute inset-x-0 bottom-7 text-center">
         <p className="number font-syne text-5xl font-extrabold text-ivory">
-          {percent(value)}
+          {percent(clamped)}
         </p>
         <p className="mt-1 text-sm text-mist">Renovable anual</p>
       </div>

@@ -14,6 +14,7 @@ import Migration from "./pages/Migration";
 import Empresas from "./pages/admin/Empresas";
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import CargaMensual from "./pages/admin/CargaMensual";
+import Consolidado from "./pages/admin/Consolidado";
 
 function PrivateRoute() {
   const [checking, setChecking] = useState(true);
@@ -101,6 +102,7 @@ export default function App() {
         <Route element={<Navigate replace to="/admin/empresas" />} path="/admin" />
         <Route element={<Empresas />} path="/admin/empresas" />
         <Route element={<AdminDashboard />} path="/admin/dashboard" />
+        <Route element={<Consolidado />} path="/admin/consolidado" />
         <Route element={<CargaMensual />} path="/admin/carga-mensual" />
       </Route>
       <Route element={<Navigate replace to="/" />} path="*" />

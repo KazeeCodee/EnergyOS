@@ -1,4 +1,4 @@
-import { ArrowRight, Building2 } from "lucide-react";
+import { ArrowRight, Building2, LayoutGrid } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAdminContext } from "../../context/AdminContext";
 import { useAsyncData } from "../../hooks/useAsyncData";
@@ -36,6 +36,11 @@ export default function Empresas() {
   const openDashboard = (empresa: AdminEmpresaRow) => {
     selectEmpresa({ id: empresa.id, nombre: empresa.razon_social });
     navigate("/admin/dashboard");
+  };
+
+  const openConsolidado = (empresa: AdminEmpresaRow) => {
+    selectEmpresa({ id: empresa.id, nombre: empresa.razon_social });
+    navigate("/admin/consolidado");
   };
 
   return (
@@ -112,10 +117,16 @@ export default function Empresas() {
                         <Badge tone={estado.tone}>{estado.label}</Badge>
                       </td>
                       <td className="px-5 py-4 text-right">
-                        <Button onClick={() => openDashboard(empresa)} type="button" variant="outline">
-                          Ver dashboard
-                          <ArrowRight size={16} />
-                        </Button>
+                        <div className="flex justify-end gap-2">
+                          <Button onClick={() => openConsolidado(empresa)} type="button" variant="primary">
+                            <LayoutGrid size={16} />
+                            Consolidado
+                          </Button>
+                          <Button onClick={() => openDashboard(empresa)} type="button" variant="outline">
+                            Dashboard
+                            <ArrowRight size={16} />
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   );
