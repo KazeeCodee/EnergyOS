@@ -1,52 +1,20 @@
-import { Navigate, Route, Routes } from "react-router-dom";
 import { useEffect, useState } from "react";
+import { Navigate, Route, Routes } from "react-router-dom";
 import { AdminShell } from "./components/layout/AdminShell";
-import { AppShell } from "./components/layout/AppShell";
 import { LoadingScreen } from "./components/ui/LoadingScreen";
-import { isCurrentUserAdmin } from "./services/adminData";
-import { syncSessionFromSupabase } from "./utils/session";
+import AdminAnalytics from "./pages/admin/AdminAnalytics";
+import AdminModule1 from "./pages/admin/AdminModule1";
+import AdminModule2 from "./pages/admin/AdminModule2";
+import AdminModule3 from "./pages/admin/AdminModule3";
+import AdminModule4 from "./pages/admin/AdminModule4";
+import SystemOverview from "./pages/admin/SystemOverview";
 import Access from "./pages/Access";
-import Compliance from "./pages/Compliance";
-import Contracts from "./pages/Contracts";
-import Costs from "./pages/Costs";
-import Dashboard from "./pages/Dashboard";
-import Migration from "./pages/Migration";
-import Empresas from "./pages/admin/Empresas";
-import AdminDashboard from "./pages/admin/AdminDashboard";
-import CargaMensual from "./pages/admin/CargaMensual";
-import Consolidado from "./pages/admin/Consolidado";
-
-function PrivateRoute() {
-  const [checking, setChecking] = useState(true);
-  const [authenticated, setAuthenticated] = useState(false);
-
-  useEffect(() => {
-    let active = true;
-    syncSessionFromSupabase()
-      .then((session) => {
-        if (active) setAuthenticated(Boolean(session));
-      })
-      .catch(() => {
-        if (active) setAuthenticated(false);
-      })
-      .finally(() => {
-        if (active) setChecking(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  if (checking) {
-    return <LoadingScreen messages={["Validando sesion...", "Cargando EnergyOS..."]} />;
-  }
-  if (!authenticated) return <Navigate replace to="/" />;
-  return <AppShell />;
-}
+import { isCurrentUserAdmin } from "./services/adminData";
+import { getSession, syncSessionFromSupabase } from "./utils/session";
 
 function AdminRoute() {
   const [checking, setChecking] = useState(true);
-  const [authenticated, setAuthenticated] = useState(false);
+  const [authenticated, setAuthenticated] = useState(() => Boolean(getSession()));
   const [admin, setAdmin] = useState(false);
 
   useEffect(() => {
@@ -61,8 +29,8 @@ function AdminRoute() {
         }
 
         setAuthenticated(true);
-        const isAdmin = await isCurrentUserAdmin();
-        if (active) setAdmin(isAdmin);
+        const hasAdminAccess = await isCurrentUserAdmin();
+        if (active) setAdmin(hasAdminAccess);
       })
       .catch(() => {
         if (active) {
@@ -79,10 +47,10 @@ function AdminRoute() {
   }, []);
 
   if (checking) {
-    return <LoadingScreen messages={["Validando acceso admin...", "Cargando backoffice..."]} />;
+    return <LoadingScreen messages={["Validando acceso admin...", "Cargando nueva consola del sistema..."]} />;
   }
-  if (!authenticated) return <Navigate replace to="/acceso" />;
-  if (!admin) return <Navigate replace to="/dashboard" />;
+  if (!authenticated) return <Navigate replace to="/" />;
+  if (!admin) return <Navigate replace to="/" />;
   return <AdminShell />;
 }
 
@@ -91,20 +59,15 @@ export default function App() {
     <Routes>
       <Route element={<Access />} path="/" />
       <Route element={<Access />} path="/acceso" />
-      <Route element={<PrivateRoute />}>
-        <Route element={<Dashboard />} path="/dashboard" />
-        <Route element={<Compliance />} path="/compliance" />
-        <Route element={<Contracts />} path="/contratos" />
-        <Route element={<Costs />} path="/costos" />
-        <Route element={<Migration />} path="/migracion" />
+      <Route element={<AdminRoute />} path="/admin">
+        <Route element={<SystemOverview />} index />
+        <Route element={<AdminModule1 />} path="modulo-1" />
+        <Route element={<AdminModule2 />} path="modulo-2" />
+        <Route element={<AdminModule3 />} path="modulo-3" />
+        <Route element={<AdminModule4 />} path="modulo-4" />
+        <Route element={<AdminAnalytics />} path="analitica" />
       </Route>
-      <Route element={<AdminRoute />}>
-        <Route element={<Navigate replace to="/admin/empresas" />} path="/admin" />
-        <Route element={<Empresas />} path="/admin/empresas" />
-        <Route element={<AdminDashboard />} path="/admin/dashboard" />
-        <Route element={<Consolidado />} path="/admin/consolidado" />
-        <Route element={<CargaMensual />} path="/admin/carga-mensual" />
-      </Route>
+      <Route element={<Navigate replace to="/admin" />} path="/dashboard" />
       <Route element={<Navigate replace to="/" />} path="*" />
     </Routes>
   );

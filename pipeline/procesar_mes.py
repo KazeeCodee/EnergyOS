@@ -63,6 +63,21 @@ class ParsedCammesaZip:
     precio_spot_valle_pesos_mwh: float | None
     precio_spot_resto_pesos_mwh: float | None
     cargo_transporte_pesos_mwh: float | None
+    source_kind: str = "zip"
+    has_raw_atra: bool = False
+
+
+REQUIRED_MERCADO_FIELDS = (
+    "generacion_total_gwh",
+    "generacion_mater_gwh",
+    "mix_termica_pct",
+    "mix_hidraulica_pct",
+    "mix_nuclear_pct",
+    "mix_renovable_pct",
+    "precio_spot_usd_mwh",
+    "costo_renovable_usd_mwh",
+    "costo_cammesa_usd_mwh",
+)
 
 
 def normalize(value: Any) -> str:
@@ -130,6 +145,11 @@ def average(*values: float | None) -> float:
     return sum(valid) / len(valid) if valid else 0.0
 
 
+def average_or_none(*values: float | None) -> float | None:
+    valid = [float(value) for value in values if value is not None]
+    return sum(valid) / len(valid) if valid else None
+
+
 def get_required_env(name: str) -> str:
     value = os.getenv(name)
     if not value:
@@ -152,7 +172,7 @@ def setup_logging(anio: int, mes: int) -> None:
 def infer_period_from_filename(path: Path) -> tuple[int | None, int | None]:
     name = path.stem.upper()
 
-    yymm_match = re.search(r"(?:DTE|AMAT|AGUM|ATRA)?(\d{2})(\d{2})", name)
+    yymm_match = re.search(r"(?:^|[_\-\s])(?:DTE|AMAT|AGUM|ATRA)?(\d{2})(0[1-9]|1[0-2])(?:$|[_\-\s])", name)
     if yymm_match:
         return 2000 + int(yymm_match.group(1)), int(yymm_match.group(2))
 
@@ -333,31 +353,35 @@ def parse_atra_text(text: str) -> float | None:
     return None
 
 
-def parse_cammesa_zip(zip_path: Path) -> ParsedCammesaZip:
-    amat_text = read_cammesa_member(zip_path, "AMAT")
-    agum_text = read_cammesa_member(zip_path, "AGUM")
-    atra_text = read_cammesa_member(zip_path, "ATRA")
-
+def build_parsed_cammesa_period(
+    amat_text: str,
+    agum_text: str,
+    atra_text: str | None = None,
+    *,
+    source_label: str,
+    source_kind: str = "zip",
+) -> ParsedCammesaZip:
     amat_by_nemo, total_mater_mwh, total_importe = parse_amat_text(amat_text)
     demanda_by_nemo, spot_by_nemo, precios_spot = parse_agum_text(agum_text)
-    cargo_transporte = parse_atra_text(atra_text)
+    cargo_transporte = parse_atra_text(atra_text) if atra_text else None
 
     nemos = set(amat_by_nemo) | set(demanda_by_nemo)
     empresas: dict[str, EmpresaCammesaData] = {}
     for nemo in nemos:
         mater_mwh, importe_mater_pesos = amat_by_nemo.get(nemo, (0.0, 0.0))
-        spot_total = spot_by_nemo.get(nemo, 0.0)
+        spot_total = max(0.0, spot_by_nemo.get(nemo, 0.0))
         demanda_total = max(demanda_by_nemo.get(nemo, 0.0), spot_total + mater_mwh)
         empresas[nemo] = EmpresaCammesaData(
             nemo=nemo,
-            demanda_total_mwh=demanda_total,
-            mater_mwh=mater_mwh,
+            demanda_total_mwh=max(0.0, demanda_total),
+            mater_mwh=max(0.0, mater_mwh),
             spot_mwh=spot_total,
-            importe_mater_pesos=importe_mater_pesos,
+            importe_mater_pesos=max(0.0, importe_mater_pesos),
         )
 
     logging.info(
-        "ZIP CAMMESA parseado: %s Nemos, MATER total %.2f MWh, importe total %.2f pesos",
+        "%s parseado: %s Nemos, MATER total %.2f MWh, importe total %.2f pesos",
+        source_label,
         len(empresas),
         total_mater_mwh,
         total_importe,
@@ -370,6 +394,21 @@ def parse_cammesa_zip(zip_path: Path) -> ParsedCammesaZip:
         precio_spot_valle_pesos_mwh=precios_spot["valle"],
         precio_spot_resto_pesos_mwh=precios_spot["resto"],
         cargo_transporte_pesos_mwh=cargo_transporte,
+        source_kind=source_kind,
+        has_raw_atra=atra_text is not None and bool(atra_text.strip()),
+    )
+
+
+def parse_cammesa_zip(zip_path: Path) -> ParsedCammesaZip:
+    amat_text = read_cammesa_member(zip_path, "AMAT")
+    agum_text = read_cammesa_member(zip_path, "AGUM")
+    atra_text = read_cammesa_member(zip_path, "ATRA")
+    return build_parsed_cammesa_period(
+        amat_text,
+        agum_text,
+        atra_text,
+        source_label=f"ZIP CAMMESA {zip_path.name}",
+        source_kind="zip",
     )
 
 
@@ -516,7 +555,11 @@ def candidate_tables_from_excel(path: Path) -> list[pd.DataFrame]:
 
 def extract_mercado_from_cammesa_zip(path: Path) -> MercadoMes:
     parsed = parse_cammesa_zip(path)
-    precio_spot_promedio = average(
+    return build_mercado_from_parsed(parsed)
+
+
+def build_mercado_from_parsed(parsed: ParsedCammesaZip) -> MercadoMes:
+    precio_spot_promedio = average_or_none(
         parsed.precio_spot_pico_pesos_mwh,
         parsed.precio_spot_valle_pesos_mwh,
         parsed.precio_spot_resto_pesos_mwh,
@@ -612,9 +655,9 @@ def extract_mercado(variables_path: Path, anio: int, mes: int) -> MercadoMes:
 
 def fetch_active_empresas(supabase: Client) -> list[dict[str, Any]]:
     response = (
-        supabase.table("empresas")
+        supabase.table("agentes_monitoreados")
         .select("*")
-        .in_("plan_activo", list(ACTIVE_PLANS))
+        .eq("activo", True)
         .execute()
     )
     return response.data or []
@@ -622,27 +665,19 @@ def fetch_active_empresas(supabase: Client) -> list[dict[str, Any]]:
 
 def fetch_nemos(supabase: Client, empresa_id: str) -> list[str]:
     response = (
-        supabase.table("nemos")
+        supabase.table("agentes_monitoreados")
         .select("nemo")
-        .eq("empresa_id", empresa_id)
+        .eq("id", empresa_id)
         .eq("activo", True)
+        .limit(1)
         .execute()
     )
     return [str(row["nemo"]).strip().upper() for row in response.data or []]
 
 
 def fetch_contratos(supabase: Client, empresa_id: str, anio: int, mes: int) -> list[dict[str, Any]]:
-    period_date = date(anio, mes, 1).isoformat()
-    response = (
-        supabase.table("contratos")
-        .select("*")
-        .eq("empresa_id", empresa_id)
-        .eq("activo", True)
-        .lte("vigencia_inicio", period_date)
-        .gte("vigencia_fin", period_date)
-        .execute()
-    )
-    return response.data or []
+    del supabase, empresa_id, anio, mes
+    return []
 
 
 def fetch_historial_anual(supabase: Client, empresa_id: str, anio: int, mes: int) -> list[dict[str, Any]]:
@@ -656,6 +691,184 @@ def fetch_historial_anual(supabase: Client, empresa_id: str, anio: int, mes: int
         .execute()
     )
     return response.data or []
+
+
+def fetch_raw_lines_for_period(
+    supabase: Client,
+    table_name: str,
+    anio: int,
+    mes: int,
+    *,
+    page_size: int = 5000,
+) -> list[str]:
+    lines: list[str] = []
+    offset = 0
+    while True:
+        response = (
+            supabase.table(table_name)
+            .select("raw_text,source_row")
+            .eq("anio", anio)
+            .eq("mes", mes)
+            .order("source_row")
+            .range(offset, offset + page_size - 1)
+            .execute()
+        )
+        rows = response.data or []
+        if not rows:
+            break
+
+        lines.extend(
+            str(row.get("raw_text") or "")
+            for row in rows
+            if str(row.get("raw_text") or "").strip()
+        )
+        if len(rows) < page_size:
+            break
+        offset += page_size
+
+    return lines
+
+
+def parse_cammesa_raw_period(supabase: Client, anio: int, mes: int) -> ParsedCammesaZip | None:
+    amat_lines = fetch_raw_lines_for_period(supabase, "raw_amat", anio, mes)
+    agum_lines = fetch_raw_lines_for_period(supabase, "raw_agum", anio, mes)
+    atra_lines = fetch_raw_lines_for_period(supabase, "raw_atra", anio, mes)
+
+    if not amat_lines and not agum_lines:
+        logging.info("No hay raw_amat/raw_agum para %s-%02d", anio, mes)
+        return None
+    if not amat_lines or not agum_lines:
+        logging.warning(
+            "Raw incompleto para %s-%02d: raw_amat=%s raw_agum=%s",
+            anio,
+            mes,
+            bool(amat_lines),
+            bool(agum_lines),
+        )
+        return None
+
+    return build_parsed_cammesa_period(
+        "\n".join(amat_lines),
+        "\n".join(agum_lines),
+        "\n".join(atra_lines) if atra_lines else None,
+        source_label=f"RAW CAMMESA {anio}-{mes:02d}",
+        source_kind="raw",
+    )
+
+
+def mercado_from_existing_row(row: dict[str, Any] | None) -> MercadoMes:
+    row = row or {}
+    return MercadoMes(
+        generacion_total_gwh=get_column_value(pd.Series(row), "generacion_total_gwh"),
+        generacion_mater_gwh=get_column_value(pd.Series(row), "generacion_mater_gwh"),
+        mix_termica_pct=get_column_value(pd.Series(row), "mix_termica_pct"),
+        mix_hidraulica_pct=get_column_value(pd.Series(row), "mix_hidraulica_pct"),
+        mix_nuclear_pct=get_column_value(pd.Series(row), "mix_nuclear_pct"),
+        mix_renovable_pct=get_column_value(pd.Series(row), "mix_renovable_pct"),
+        precio_spot_usd_mwh=get_column_value(pd.Series(row), "precio_spot_usd_mwh"),
+        costo_renovable_usd_mwh=get_column_value(pd.Series(row), "costo_renovable_usd_mwh"),
+        costo_cammesa_usd_mwh=get_column_value(pd.Series(row), "costo_cammesa_usd_mwh"),
+        precio_potencia_usd_mw_mes=get_column_value(pd.Series(row), "precio_potencia_usd_mw_mes"),
+        cargo_transporte_usd_mwh=get_column_value(pd.Series(row), "cargo_transporte_usd_mwh"),
+        precio_gasoil_importado_usd_mwh=get_column_value(pd.Series(row), "precio_gasoil_importado_usd_mwh"),
+        precio_spot_pico_pesos_mwh=get_column_value(pd.Series(row), "precio_spot_pico_pesos_mwh"),
+        precio_spot_valle_pesos_mwh=get_column_value(pd.Series(row), "precio_spot_valle_pesos_mwh"),
+        precio_spot_resto_pesos_mwh=get_column_value(pd.Series(row), "precio_spot_resto_pesos_mwh"),
+        cargo_transporte_pesos_mwh=get_column_value(pd.Series(row), "cargo_transporte_pesos_mwh"),
+    )
+
+
+def merge_mercado(base: MercadoMes, override: MercadoMes) -> MercadoMes:
+    return MercadoMes(
+        generacion_total_gwh=override.generacion_total_gwh if override.generacion_total_gwh is not None else base.generacion_total_gwh,
+        generacion_mater_gwh=override.generacion_mater_gwh if override.generacion_mater_gwh is not None else base.generacion_mater_gwh,
+        mix_termica_pct=override.mix_termica_pct if override.mix_termica_pct is not None else base.mix_termica_pct,
+        mix_hidraulica_pct=override.mix_hidraulica_pct if override.mix_hidraulica_pct is not None else base.mix_hidraulica_pct,
+        mix_nuclear_pct=override.mix_nuclear_pct if override.mix_nuclear_pct is not None else base.mix_nuclear_pct,
+        mix_renovable_pct=override.mix_renovable_pct if override.mix_renovable_pct is not None else base.mix_renovable_pct,
+        precio_spot_usd_mwh=override.precio_spot_usd_mwh if override.precio_spot_usd_mwh is not None else base.precio_spot_usd_mwh,
+        costo_renovable_usd_mwh=override.costo_renovable_usd_mwh if override.costo_renovable_usd_mwh is not None else base.costo_renovable_usd_mwh,
+        costo_cammesa_usd_mwh=override.costo_cammesa_usd_mwh if override.costo_cammesa_usd_mwh is not None else base.costo_cammesa_usd_mwh,
+        precio_potencia_usd_mw_mes=override.precio_potencia_usd_mw_mes if override.precio_potencia_usd_mw_mes is not None else base.precio_potencia_usd_mw_mes,
+        cargo_transporte_usd_mwh=override.cargo_transporte_usd_mwh if override.cargo_transporte_usd_mwh is not None else base.cargo_transporte_usd_mwh,
+        precio_gasoil_importado_usd_mwh=override.precio_gasoil_importado_usd_mwh if override.precio_gasoil_importado_usd_mwh is not None else base.precio_gasoil_importado_usd_mwh,
+        precio_spot_pico_pesos_mwh=override.precio_spot_pico_pesos_mwh if override.precio_spot_pico_pesos_mwh is not None else base.precio_spot_pico_pesos_mwh,
+        precio_spot_valle_pesos_mwh=override.precio_spot_valle_pesos_mwh if override.precio_spot_valle_pesos_mwh is not None else base.precio_spot_valle_pesos_mwh,
+        precio_spot_resto_pesos_mwh=override.precio_spot_resto_pesos_mwh if override.precio_spot_resto_pesos_mwh is not None else base.precio_spot_resto_pesos_mwh,
+        cargo_transporte_pesos_mwh=override.cargo_transporte_pesos_mwh if override.cargo_transporte_pesos_mwh is not None else base.cargo_transporte_pesos_mwh,
+    )
+
+
+def resolve_mercado(
+    supabase: Client,
+    anio: int,
+    mes: int,
+    *,
+    parsed_raw: ParsedCammesaZip | None,
+    input_path: Path | None,
+    variables_relevantes_xlsx: Path | None,
+) -> MercadoMes:
+    merged = mercado_from_existing_row(existing_market_row(supabase, anio, mes))
+
+    if variables_relevantes_xlsx is not None:
+        merged = merge_mercado(merged, extract_mercado(variables_relevantes_xlsx, anio, mes))
+    elif input_path is not None and is_cammesa_txt_zip(input_path):
+        merged = merge_mercado(merged, extract_mercado_from_cammesa_zip(input_path))
+
+    if parsed_raw is not None:
+        merged = merge_mercado(merged, build_mercado_from_parsed(parsed_raw))
+
+    return merged
+
+
+def resolve_module_1_source(
+    supabase: Client,
+    anio: int,
+    mes: int,
+    input_path: Path | None,
+) -> pd.DataFrame | ParsedCammesaZip:
+    raw_parsed = parse_cammesa_raw_period(supabase, anio, mes)
+    if raw_parsed is not None:
+        logging.info("Modulo 1 resuelto desde raw_amat/raw_agum para %s-%02d", anio, mes)
+        return raw_parsed
+
+    if input_path is None:
+        raise SystemExit(
+            f"No hay raw_amat/raw_agum completos para {anio}-{mes:02d} y no se paso archivo fallback."
+        )
+
+    logging.warning("Usando archivo fallback %s para %s-%02d", input_path.name, anio, mes)
+    return parse_dte_mate(input_path)
+
+
+def parse_iso_date(value: Any) -> date | None:
+    if value in (None, "", "None"):
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).date()
+    except ValueError:
+        return None
+
+
+def is_expected_period_for_empresa(empresa: dict[str, Any], anio: int, mes: int) -> bool:
+    periodo = date(anio, mes, 1)
+    seguimiento_desde = parse_iso_date(empresa.get("seguimiento_desde"))
+    cobertura_desde = parse_iso_date(empresa.get("cobertura_desde"))
+    cobertura_hasta = parse_iso_date(empresa.get("cobertura_hasta"))
+
+    start_dates = [candidate for candidate in (seguimiento_desde, cobertura_desde) if candidate is not None]
+    if start_dates and periodo < max(start_dates):
+        return False
+    if cobertura_hasta is not None and periodo > cobertura_hasta:
+        return False
+    return True
 
 
 def weighted_contract_price(contratos: list[dict[str, Any]], dte_rows: pd.DataFrame) -> float:
@@ -761,6 +974,47 @@ def calculate_module_2(
     return results
 
 
+def build_quality_payload(
+    *,
+    demanda_total: float,
+    mater_mwh: float,
+    spot_mwh: float,
+    mercado: MercadoMes,
+    parsed: ParsedCammesaZip | None,
+) -> dict[str, Any]:
+    reasons: list[str] = []
+    tolerance = 0.5
+
+    if demanda_total <= 0:
+        reasons.append("Demanda total no positiva")
+    if mater_mwh < 0 or spot_mwh < 0:
+        reasons.append("Energia negativa detectada")
+    if demanda_total > 0 and mater_mwh > demanda_total + tolerance:
+        reasons.append("MATER supera la demanda total")
+    if demanda_total > 0 and spot_mwh > demanda_total + tolerance:
+        reasons.append("SPOT supera la demanda total")
+    if demanda_total > 0 and (mater_mwh + spot_mwh) > demanda_total + tolerance:
+        reasons.append("MATER + SPOT supera la demanda total")
+
+    if parsed is not None:
+        if parsed.source_kind == "raw" and not parsed.has_raw_atra:
+            reasons.append("Raw ATra faltante para transporte del periodo")
+        if (
+            parsed.precio_spot_pico_pesos_mwh is None
+            and parsed.precio_spot_valle_pesos_mwh is None
+            and parsed.precio_spot_resto_pesos_mwh is None
+        ):
+            reasons.append("Sin precios spot en pesos del periodo")
+        if mercado.cargo_transporte_pesos_mwh is None:
+            reasons.append("Sin cargo de transporte en pesos del periodo")
+
+    motivo = "; ".join(reasons) if reasons else None
+    return {
+        "dato_sospechoso": bool(reasons),
+        "sospechoso_motivo": motivo,
+    }
+
+
 def process_empresa_from_cammesa_zip(
     supabase: Client,
     empresa: dict[str, Any],
@@ -788,16 +1042,23 @@ def process_empresa_from_cammesa_zip(
     saldo_total = spot_mwh
     porcentaje_renovable = min(100.0, (mater_mwh / demanda_total * 100) if demanda_total else 0.0)
     precio_efectivo_pesos_mwh = (importe_mater_pesos / mater_mwh) if mater_mwh else 0.0
-    precio_spot_pesos_mwh = average(
+    precio_spot_pesos_mwh = average_or_none(
         mercado.precio_spot_pico_pesos_mwh,
         mercado.precio_spot_valle_pesos_mwh,
         mercado.precio_spot_resto_pesos_mwh,
     )
-    cargo_transporte_pesos_mwh = mercado.cargo_transporte_pesos_mwh or 0.0
+    cargo_transporte_pesos_mwh = mercado.cargo_transporte_pesos_mwh
     costo_total_estimado = (
         importe_mater_pesos
-        + (spot_mwh * precio_spot_pesos_mwh)
-        + (demanda_total * cargo_transporte_pesos_mwh)
+        + (spot_mwh * (precio_spot_pesos_mwh or 0.0))
+        + (demanda_total * (cargo_transporte_pesos_mwh or 0.0))
+    )
+    quality_payload = build_quality_payload(
+        demanda_total=demanda_total,
+        mater_mwh=mater_mwh,
+        spot_mwh=spot_mwh,
+        mercado=mercado,
+        parsed=parsed,
     )
 
     payload = {
@@ -811,17 +1072,18 @@ def process_empresa_from_cammesa_zip(
         "saldo_total_mwh": saldo_total,
         "porcentaje_renovable": porcentaje_renovable,
         "costo_renovable_usd_mwh": precio_efectivo_pesos_mwh,
-        "costo_spot_usd_mwh": precio_spot_pesos_mwh,
+        "costo_spot_usd_mwh": precio_spot_pesos_mwh or 0.0,
         "costo_total_estimado_usd": costo_total_estimado,
         "importe_mater_pesos": importe_mater_pesos,
         "precio_efectivo_pesos_mwh": precio_efectivo_pesos_mwh,
         "cargo_transporte_pesos_mwh": cargo_transporte_pesos_mwh,
         "precio_spot_pesos_mwh": precio_spot_pesos_mwh,
+        **quality_payload,
         "procesado_en": datetime.now(UTC).isoformat(),
     }
     supabase.table("datos_mensuales").upsert(payload, on_conflict="empresa_id,anio,mes").execute()
     logging.info(
-        "%s procesada desde ZIP CAMMESA: demanda=%.2f MWh mater=%.2f MWh importe=%.2f pesos renovable=%.2f%%",
+        "%s procesada desde fuente CAMMESA estructurada: demanda=%.2f MWh mater=%.2f MWh importe=%.2f pesos renovable=%.2f%%",
         razon_social,
         demanda_total,
         mater_mwh,
@@ -876,6 +1138,13 @@ def process_empresa_legacy(
             mercado.precio_gasoil_importado_usd_mwh or 0.0,
         )
         module_2 = calculate_module_2(contratos, mercado.costo_renovable_usd_mwh or 0.0, mater_mwh)
+        quality_payload = build_quality_payload(
+            demanda_total=demanda_total,
+            mater_mwh=mater_mwh,
+            spot_mwh=spot_mwh,
+            mercado=mercado,
+            parsed=None,
+        )
 
         payload = {
             "empresa_id": empresa_id,
@@ -894,6 +1163,7 @@ def process_empresa_legacy(
             "precio_efectivo_pesos_mwh": None,
             "cargo_transporte_pesos_mwh": None,
             "precio_spot_pesos_mwh": None,
+            **quality_payload,
             "procesado_en": datetime.now(UTC).isoformat(),
         }
         supabase.table("datos_mensuales").upsert(payload, on_conflict="empresa_id,anio,mes").execute()
@@ -994,8 +1264,20 @@ def coalesce_number(new_value: float | None, previous_value: Any, default: float
     return default
 
 
+def has_complete_mercado_payload(mercado: MercadoMes) -> bool:
+    return all(getattr(mercado, field) is not None for field in REQUIRED_MERCADO_FIELDS)
+
+
 def upsert_mercado(supabase: Client, mercado: MercadoMes, anio: int, mes: int) -> None:
     previous = existing_market_row(supabase, anio, mes) or {}
+    if not previous and not has_complete_mercado_payload(mercado):
+        logging.warning(
+            "No publico datos_mercado para %s-%02d porque solo hay datos parciales del mercado.",
+            anio,
+            mes,
+        )
+        return
+
     generacion_mater = mercado.generacion_mater_gwh
     resolved_generacion_mater = coalesce_number(generacion_mater, previous.get("generacion_mater_gwh"))
     mater_mom_pct, mater_yoy_pct = calculate_market_variations(
@@ -1033,7 +1315,11 @@ def upsert_mercado(supabase: Client, mercado: MercadoMes, anio: int, mes: int) -
 
 def verify_month(supabase: Client, processed_empresa_ids: set[str], anio: int, mes: int) -> None:
     empresas = fetch_active_empresas(supabase)
-    missing = [empresa for empresa in empresas if empresa["id"] not in processed_empresa_ids]
+    missing = [
+        empresa
+        for empresa in empresas
+        if empresa["id"] not in processed_empresa_ids and is_expected_period_for_empresa(empresa, anio, mes)
+    ]
     if missing:
         for empresa in missing:
             logging.warning("Verificacion: sin datos_mensuales para %s en %s-%02d", empresa["razon_social"], anio, mes)
@@ -1043,12 +1329,23 @@ def verify_month(supabase: Client, processed_empresa_ids: set[str], anio: int, m
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Procesa archivos CAMMESA para EnergyOS.")
-    parser.add_argument("input_path", type=Path, help="ZIP DTE[AAMM].zip o archivo legacy DTE .xlsx")
+    parser.add_argument(
+        "input_path",
+        nargs="?",
+        type=Path,
+        help="ZIP CAMMESA o archivo legacy DTE .xlsx usado como fallback del Modulo 1.",
+    )
     parser.add_argument(
         "variables_relevantes_xlsx",
         nargs="?",
         type=Path,
-        help="Archivo legacy de Variables Relevantes. En el flujo nuevo no se usa.",
+        help="Archivo legacy de Variables Relevantes.",
+    )
+    parser.add_argument(
+        "--variables-relevantes-xlsx",
+        dest="variables_relevantes_xlsx_opt",
+        type=Path,
+        help="Ruta explicita al archivo de Variables Relevantes cuando no se pasa input_path.",
     )
     parser.add_argument("--anio", type=int, help="Anio del periodo.")
     parser.add_argument("--mes", type=int, help="Mes del periodo (1-12).")
@@ -1057,7 +1354,14 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    inferred_anio, inferred_mes = infer_period_from_filename(args.input_path)
+    variables_relevantes_xlsx = args.variables_relevantes_xlsx_opt or args.variables_relevantes_xlsx
+    inferred_anio = inferred_mes = None
+    for candidate in (args.input_path, variables_relevantes_xlsx):
+        if candidate is None:
+            continue
+        inferred_anio, inferred_mes = infer_period_from_filename(candidate)
+        if inferred_anio and inferred_mes:
+            break
     anio = args.anio or inferred_anio
     mes = args.mes or inferred_mes
     if not anio or not mes:
@@ -1072,14 +1376,22 @@ def main() -> int:
     service_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or get_required_env("SUPABASE_SERVICE_KEY")
     supabase = create_client(supabase_url, service_key)
 
-    dte = parse_dte_mate(args.input_path)
-    mercado_source = args.input_path if is_cammesa_txt_zip(args.input_path) else args.variables_relevantes_xlsx
-    if mercado_source is None:
-        raise SystemExit("Para el flujo legacy tenes que pasar tambien el archivo de Variables Relevantes.")
-    mercado = extract_mercado(mercado_source, anio, mes)
+    dte = resolve_module_1_source(supabase, anio, mes, args.input_path)
+    parsed_raw = dte if isinstance(dte, ParsedCammesaZip) else None
+    mercado = resolve_mercado(
+        supabase,
+        anio,
+        mes,
+        parsed_raw=parsed_raw,
+        input_path=args.input_path,
+        variables_relevantes_xlsx=variables_relevantes_xlsx,
+    )
 
     processed_empresa_ids: set[str] = set()
     for empresa in fetch_active_empresas(supabase):
+        if not is_expected_period_for_empresa(empresa, anio, mes):
+            logging.info("Empresa %s fuera de cobertura para %s-%02d; se omite", empresa["razon_social"], anio, mes)
+            continue
         result = process_empresa(supabase, empresa, dte, mercado, anio, mes)
         if result:
             processed_empresa_ids.add(empresa["id"])

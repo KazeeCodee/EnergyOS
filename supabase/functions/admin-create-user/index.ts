@@ -46,6 +46,14 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
+  return json(
+    {
+      error:
+        "El alta comercial de clientes quedo deshabilitada. Primero hay que implementar el nuevo flujo basado en agentes monitoreados.",
+    },
+    410,
+  );
+
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   if (!supabaseUrl || !serviceRoleKey) {

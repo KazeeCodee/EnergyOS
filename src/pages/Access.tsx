@@ -37,7 +37,7 @@ export default function Access() {
     try {
       await setSession(email, password);
       const isAdmin = await isCurrentUserAdmin();
-      navigate(isAdmin ? "/admin/empresas" : "/dashboard");
+      navigate(isAdmin ? "/admin" : "/");
     } catch (caught) {
       setError(
         caught instanceof Error

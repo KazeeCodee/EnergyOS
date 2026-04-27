@@ -18,6 +18,105 @@ python pipeline\carga_historica.py --desde 2025-01 --hasta 2025-12
 python pipeline\carga_historica.py --desde 2026-01 --hasta 2026-04
 ```
 
+## 1.1. Carga raw historica de Modulos 1, 2, 3 y 4
+
+Para centralizar la fuente cruda que hoy usan los modulos operativos, el repo incluye:
+
+- migracion: `supabase/migrations/20260426110000_cammesa_raw_m1_tables.sql`
+- migracion: `supabase/migrations/20260426123000_cammesa_raw_m234_tables.sql`
+- importador: `pipeline/import_raw_sql_to_supabase.py`
+
+### Crear tablas en Supabase
+
+```powershell
+cd E:\Proyectos\GitHub\EnergyOS
+
+$env:SUPABASE_ACCESS_TOKEN="<personal-access-token>"
+npx supabase db push --linked --include-all
+```
+
+Notas:
+
+- El proyecto ya esta linkeado localmente.
+- Si no queres usar `SUPABASE_ACCESS_TOKEN`, tambien podes empujar la migracion con password de Postgres remota usando `npx supabase db push --linked -p "<db-password>"`.
+
+### Importar `raw_amat`, `raw_agum` y `raw_atra`
+
+```powershell
+cd E:\Proyectos\GitHub\EnergyOS
+
+$env:SUPABASE_URL="https://xknyqrfzkstmnlkcjfpa.supabase.co"
+$env:SUPABASE_SERVICE_ROLE_KEY="<service-role-key>"
+
+python pipeline\import_raw_sql_to_supabase.py `
+  --sql-dir "C:\Users\quime\Documents\Playground\cammesa_sql_raw_2026_02_03" `
+  --tables raw_amat raw_agum raw_atra `
+  --batch-size 500
+```
+
+Opciones utiles:
+
+- `--truncate`: limpia la tabla antes de importar.
+- `--max-rows 1000`: carga parcial para prueba.
+
+### Verificacion minima
+
+```sql
+select 'raw_amat' as tabla, count(*) as filas, min(make_date(anio, mes, 1)) as desde, max(make_date(anio, mes, 1)) as hasta
+from public.raw_amat
+union all
+select 'raw_agum' as tabla, count(*) as filas, min(make_date(anio, mes, 1)) as desde, max(make_date(anio, mes, 1)) as hasta
+from public.raw_agum
+union all
+select 'raw_atra' as tabla, count(*) as filas, min(make_date(anio, mes, 1)) as desde, max(make_date(anio, mes, 1)) as hasta
+from public.raw_atra;
+```
+
+### Procesar periodos sin ZIP
+
+El pipeline `pipeline/procesar_mes.py` ahora usa `raw_amat/raw_agum/raw_atra` como fuente primaria del periodo para:
+
+- Modulo 1: consumo y cobertura
+- Modulo 2: costos y transporte
+- Modulo 4: calidad y completitud operativa
+
+Para Modulo 3, el raw minimo complementa `datos_mercado` y puede reconstruir referencias economicas del periodo sin depender del ZIP.
+
+Ejemplo minimo sin ZIP:
+
+```powershell
+cd E:\Proyectos\GitHub\EnergyOS
+
+$env:SUPABASE_URL="https://xknyqrfzkstmnlkcjfpa.supabase.co"
+$env:SUPABASE_SERVICE_ROLE_KEY="<service-role-key>"
+
+python pipeline\procesar_mes.py --anio 2026 --mes 3
+```
+
+Si queres complementar o refrescar `datos_mercado` para ese mismo periodo sin depender del ZIP, podes pasar Variables Relevantes:
+
+```powershell
+python pipeline\procesar_mes.py --anio 2026 --mes 3 --variables-relevantes-xlsx "C:\ruta\Variables Relevantes 2026-03.xlsx"
+```
+
+Fallback transitorio:
+
+- si `raw_amat/raw_agum` no estan completos para el periodo, `procesar_mes.py` puede usar un ZIP CAMMESA o un DTE legacy como `input_path`
+- si falta `raw_atra`, el periodo puede procesarse igual pero quedara marcado como sospechoso para Modulos 2 y 4
+- si no hay raw completo ni archivo fallback, el proceso corta con error claro
+- `datos_mercado` no se publica cuando la informacion del mercado del periodo es parcial
+
+### Pantallas admin de validacion
+
+La validacion real de los modulos queda disponible en:
+
+- `/admin/modulo-1`
+- `/admin/modulo-2`
+- `/admin/modulo-3`
+- `/admin/modulo-4`
+
+Cada pantalla usa datos reales ya persistidos en Supabase, no mocks.
+
 ## 2. Query SQL de verificacion
 
 Ejecutar esta query despues de cada corrida anual, ajustando el rango segun el anio que acabas de correr:

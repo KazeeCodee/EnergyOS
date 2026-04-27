@@ -12,11 +12,11 @@ from typing import Any
 from supabase import Client, create_client
 
 from procesar_mes import (
-    extract_mercado,
     fetch_active_empresas,
     get_required_env,
-    parse_dte_mate,
     process_empresa,
+    resolve_mercado,
+    resolve_module_1_source,
     setup_logging,
     upsert_mercado,
     verify_month,
@@ -122,16 +122,22 @@ def process_pending_item(supabase: Client, item: dict[str, Any]) -> None:
     try:
         dte_archivo = item.get("dte_archivo")
         variables_archivo = item.get("variables_archivo")
-        if not dte_archivo or not variables_archivo:
-            raise ValueError("La corrida no tiene asociados ambos archivos CAMMESA")
 
         with tempfile.TemporaryDirectory(prefix="energyos_cammesa_") as temp_name:
             temp_dir = Path(temp_name)
-            dte_path = download_file(supabase, dte_archivo, temp_dir)
-            variables_path = download_file(supabase, variables_archivo, temp_dir)
+            dte_path = download_file(supabase, dte_archivo, temp_dir) if dte_archivo else None
+            variables_path = download_file(supabase, variables_archivo, temp_dir) if variables_archivo else None
 
-            dte = parse_dte_mate(dte_path)
-            mercado = extract_mercado(variables_path, anio, mes)
+            dte = resolve_module_1_source(supabase, anio, mes, dte_path)
+            parsed_raw = dte if getattr(dte, "source_kind", None) in {"raw", "zip"} else None
+            mercado = resolve_mercado(
+                supabase,
+                anio,
+                mes,
+                parsed_raw=parsed_raw,
+                input_path=dte_path,
+                variables_relevantes_xlsx=variables_path,
+            )
 
             processed_empresa_ids: set[str] = set()
             empresas = fetch_active_empresas(supabase)
@@ -164,8 +170,10 @@ def process_pending_item(supabase: Client, item: dict[str, Any]) -> None:
                     "empresas_total": len(empresas),
                     "empresas_procesadas": len(processed_empresa_ids),
                     "empresas_sin_datos": sin_datos,
-                    "dte_archivo": dte_archivo["file_name"],
-                    "variables_archivo": variables_archivo["file_name"],
+                    "dte_archivo": dte_archivo["file_name"] if dte_archivo else None,
+                    "variables_archivo": variables_archivo["file_name"] if variables_archivo else None,
+                    "fuente_modulo_1": getattr(parsed_raw, "source_kind", "legacy"),
+                    "fuente_mercado": "variables_relevantes" if variables_archivo else getattr(parsed_raw, "source_kind", "existente"),
                 },
             },
         )
