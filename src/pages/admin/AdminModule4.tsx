@@ -48,11 +48,11 @@ const initialData: AdminModule4Overview = {
 };
 
 const chartColors = {
-  raw: "#168056",
+  raw: "#15caca",
   mercado: "#2563EB",
   sospechoso: "#D97706",
-  border: "#DDE5EA",
-  muted: "#667085",
+  border: "#E2E8F0",
+  muted: "#64748B",
 };
 
 export default function AdminModule4() {

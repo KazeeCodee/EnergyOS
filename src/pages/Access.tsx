@@ -5,7 +5,7 @@ import { Button } from "../components/ui/Button";
 import { LoadingScreen } from "../components/ui/LoadingScreen";
 import { Logo } from "../components/ui/Logo";
 import { isCurrentUserAdmin } from "../services/adminData";
-import { setSession } from "../utils/session";
+import { getCurrentTrial, setSession } from "../utils/session";
 
 const accessMessages = [
   "Validando acceso...",
@@ -24,8 +24,11 @@ export default function Access() {
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const validEmail = email.includes("@") && email.includes(".");
-    const validPassword = password.length >= 6;
+    const trimmedEmail = email.trim();
+    const trimmedPassword = password.trim();
+
+    const validEmail = trimmedEmail.includes("@") && trimmedEmail.includes(".");
+    const validPassword = trimmedPassword.length >= 6;
 
     if (!validEmail || !validPassword) {
       setError("El correo o la contraseña no son válidos. Verificá los datos ingresados.");
@@ -35,9 +38,14 @@ export default function Access() {
     setError("");
     setLoading(true);
     try {
-      await setSession(email, password);
-      const isAdmin = await isCurrentUserAdmin();
-      navigate(isAdmin ? "/admin" : "/");
+      await setSession(trimmedEmail, trimmedPassword);
+      const [isAdmin, trial] = await Promise.all([isCurrentUserAdmin(), getCurrentTrial()]);
+      if (isAdmin || trial) {
+        navigate("/admin", { replace: true });
+        return;
+      }
+      setError("Tu cuenta no tiene acceso al panel todavía. Contactanos para continuar.");
+      setLoading(false);
     } catch (caught) {
       setError(
         caught instanceof Error

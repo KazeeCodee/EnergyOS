@@ -57,12 +57,12 @@ const initialData: AdminModule2Overview = {
 
 const chartColors = {
   total: "#D97706",
-  monomico: "#0F172A",
+  monomico: "#163759",
   spot: "#D97706",
-  renovable: "#168056",
+  renovable: "#15caca",
   transporte: "#2563EB",
-  border: "#DDE5EA",
-  muted: "#667085",
+  border: "#E2E8F0",
+  muted: "#64748B",
 };
 
 export default function AdminModule2() {

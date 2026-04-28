@@ -10,12 +10,12 @@ import AdminModule4 from "./pages/admin/AdminModule4";
 import SystemOverview from "./pages/admin/SystemOverview";
 import Access from "./pages/Access";
 import { isCurrentUserAdmin } from "./services/adminData";
-import { getSession, syncSessionFromSupabase } from "./utils/session";
+import { getCurrentTrial, getSession, syncSessionFromSupabase } from "./utils/session";
 
 function AdminRoute() {
   const [checking, setChecking] = useState(true);
   const [authenticated, setAuthenticated] = useState(() => Boolean(getSession()));
-  const [admin, setAdmin] = useState(false);
+  const [authorized, setAuthorized] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -24,18 +24,18 @@ function AdminRoute() {
         if (!active) return;
         if (!session) {
           setAuthenticated(false);
-          setAdmin(false);
+          setAuthorized(false);
           return;
         }
 
         setAuthenticated(true);
-        const hasAdminAccess = await isCurrentUserAdmin();
-        if (active) setAdmin(hasAdminAccess);
+        const [hasAdmin, trial] = await Promise.all([isCurrentUserAdmin(), getCurrentTrial()]);
+        if (active) setAuthorized(hasAdmin || Boolean(trial));
       })
       .catch(() => {
         if (active) {
           setAuthenticated(false);
-          setAdmin(false);
+          setAuthorized(false);
         }
       })
       .finally(() => {
@@ -47,10 +47,10 @@ function AdminRoute() {
   }, []);
 
   if (checking) {
-    return <LoadingScreen messages={["Validando acceso admin...", "Cargando nueva consola del sistema..."]} />;
+    return <LoadingScreen messages={["Validando acceso...", "Cargando consola del sistema..."]} />;
   }
   if (!authenticated) return <Navigate replace to="/" />;
-  if (!admin) return <Navigate replace to="/" />;
+  if (!authorized) return <Navigate replace to="/" />;
   return <AdminShell />;
 }
 
@@ -59,6 +59,7 @@ export default function App() {
     <Routes>
       <Route element={<Access />} path="/" />
       <Route element={<Access />} path="/acceso" />
+      <Route element={<Navigate replace to="/admin" />} path="/trial" />
       <Route element={<AdminRoute />} path="/admin">
         <Route element={<SystemOverview />} index />
         <Route element={<AdminModule1 />} path="modulo-1" />

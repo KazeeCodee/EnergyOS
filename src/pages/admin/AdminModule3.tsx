@@ -59,9 +59,9 @@ const chartColors = {
   termica: "#D97706",
   hidraulica: "#2563EB",
   nuclear: "#7C3AED",
-  renovable: "#168056",
-  border: "#DDE5EA",
-  muted: "#667085",
+  renovable: "#15caca",
+  border: "#E2E8F0",
+  muted: "#64748B",
 };
 
 export default function AdminModule3() {

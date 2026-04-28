@@ -1,10 +1,10 @@
 export function Logo({ compact = false }: { compact?: boolean }) {
   return (
-    <div className="flex items-baseline gap-1 font-syne font-extrabold tracking-normal">
-      <span className={compact ? "text-lg" : "text-3xl"}>Energy</span>
-      <span className={`text-forest ${compact ? "text-lg" : "text-3xl"}`}>
-        OS
-      </span>
-    </div>
+    <img
+      alt="EnergyOS"
+      className={`${compact ? "h-7" : "h-10"} w-auto object-contain select-none`}
+      draggable={false}
+      src="/logo.png"
+    />
   );
 }

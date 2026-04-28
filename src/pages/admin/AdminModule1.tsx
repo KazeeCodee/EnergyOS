@@ -54,12 +54,12 @@ const initialData: AdminModule1Overview = {
 };
 
 const chartColors = {
-  demand: "#0F172A",
-  mater: "#168056",
+  demand: "#163759",
+  mater: "#15caca",
   spot: "#D97706",
-  renewable: "#16A34A",
-  border: "#DDE5EA",
-  muted: "#667085",
+  renewable: "#0e8a8a",
+  border: "#E2E8F0",
+  muted: "#64748B",
 };
 
 function compareMonthKeys(left: string, right: string) {
