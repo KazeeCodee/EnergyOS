@@ -44,8 +44,8 @@ export default function Access() {
         navigate("/admin", { replace: true });
         return;
       }
-      setError("Tu cuenta no tiene acceso al panel todavía. Contactanos para continuar.");
-      setLoading(false);
+      // Usuario cliente normal → app
+      navigate("/app", { replace: true });
     } catch (caught) {
       setError(
         caught instanceof Error

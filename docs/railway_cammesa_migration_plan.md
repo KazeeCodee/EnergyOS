@@ -1,0 +1,161 @@
+# Railway CAMMESA Migration Plan
+
+Este documento deja listo el camino para mover el warehouse CAMMESA desde Supabase Free a Railway Postgres, manteniendo Supabase solo para Auth/login.
+
+## Estado actual
+
+- El proyecto Railway `EnergyOS` ya esta vinculado al repo `KazeeCodee/EnergyOS`, branch `main`.
+- La app ya despliega en Railway.
+- Lo que falta para cargar datos es agregar un servicio **Postgres** dentro del mismo proyecto Railway y exponer `DATABASE_URL`.
+- La base Supabase vieja no se considera fuente confiable operativa porque quedo sin espacio/conexiones, pero los datos son reproducibles desde los SQL locales.
+
+## Fuente de verdad local
+
+Directorio esperado:
+
+```powershell
+C:\Users\quime\Documents\Playground\cammesa_sql_raw_2026_02_03
+```
+
+Ese directorio contiene los `raw_*.sql` consolidados de Fase 1. El loader nuevo no depende del estado remoto de Supabase: crea tablas en Railway y carga desde esos archivos.
+
+## Clasificacion de carga
+
+El orden replica el protocolo que ya funciono en Supabase:
+
+| Grupo | Tablas | Motivo |
+|---|---|---|
+| A small smoke | `raw_aexp`, `raw_agfq`, `raw_auto`, `raw_game` | Carga chica para validar pipeline |
+| B medium | `raw_aama`, `raw_atra`, `raw_adco`, `raw_adis`, `raw_gudi`, `raw_rscj` | Tablas medianas; `raw_adco` tiene layouts variables |
+| C generation | `raw_agen` | Grande, pero ya validada con parser streaming |
+| D anexo gen | `raw_anexo_gen111..119`, `raw_anexo_gen12`, `raw_anexo_gen13`, `raw_anexo_*` gen | HTML/anexos de generacion |
+| E anexo MAT | `raw_anexo_mat*` | HTML/anexos MATER |
+| F anexo GUMA/GUME | `raw_anexo_guma`, `raw_anexo_gume` | HTML/anexos GUMA/GUME |
+| G massive | `raw_dexc`, `raw_dte` | Masivas; cargar al final |
+
+## Entorno preparado
+
+Archivos agregados:
+
+- `pipeline/railway_load_raw.py`: crea schema, inventaria, carga y audita tablas raw en Railway Postgres.
+- `pipeline/railway_full_raw_load.py`: orquestador completo para dejar corriendo toda la carga sin depender del chat.
+- `scripts/start_railway_raw_load.ps1`: wrapper PowerShell con salida visible y log en `logs/`.
+- `scripts/open_railway_raw_load_window.ps1`: abre una ventana PowerShell separada para mirar el progreso.
+- `scripts/run_railway_full_raw_load.ps1`: launcher recomendado para la carga completa.
+- `pipeline/requirements.txt`: agrega `psycopg[binary]`.
+- `.env.example`: documenta `DATABASE_URL`.
+
+## Paso manual pendiente en Railway
+
+La CLI local devolvio `Unauthorized` al intentar `railway add --database postgres`. Por eso el primer paso debe hacerse desde el dashboard:
+
+1. Abrir el proyecto Railway `EnergyOS`.
+2. Click `+ New` o `Create`.
+3. Elegir `Database` -> `PostgreSQL`.
+4. Esperar a que el servicio quede activo.
+5. Confirmar que el servicio/app tenga disponible `DATABASE_URL`.
+
+Despues de eso, todo lo demas puede correr por CLI.
+
+## Comandos
+
+Instalar dependencias:
+
+```powershell
+pip install -r pipeline\requirements.txt
+```
+
+Ver inventario sin tocar la base:
+
+```powershell
+python pipeline\railway_load_raw.py inventory
+```
+
+Ver inventario contando filas locales:
+
+```powershell
+python pipeline\railway_load_raw.py inventory --count-rows
+```
+
+Preparar schema en Railway:
+
+```powershell
+railway run python pipeline\railway_load_raw.py prepare --all
+```
+
+Smoke test:
+
+```powershell
+railway run python pipeline\railway_load_raw.py load --tabla raw_aexp --limit 500
+railway run python pipeline\railway_load_raw.py audit --tabla raw_aexp
+```
+
+Carga completa con terminal visible y log:
+
+```powershell
+.\scripts\start_railway_raw_load.ps1 -All
+```
+
+Abrir una nueva ventana PowerShell visible y dejar la carga corriendo ahi:
+
+```powershell
+.\scripts\open_railway_raw_load_window.ps1 -All
+```
+
+Cargar por grupo:
+
+```powershell
+.\scripts\start_railway_raw_load.ps1 -Group A_small_smoke
+.\scripts\start_railway_raw_load.ps1 -Group B_medium
+.\scripts\start_railway_raw_load.ps1 -Group C_generation
+.\scripts\start_railway_raw_load.ps1 -Group D_anexo_gen
+.\scripts\start_railway_raw_load.ps1 -Group E_anexo_mat
+.\scripts\start_railway_raw_load.ps1 -Group F_anexo_guma_gume
+.\scripts\start_railway_raw_load.ps1 -Group G_massive
+```
+
+Auditoria final:
+
+```powershell
+railway run python pipeline\railway_load_raw.py audit --all
+```
+
+## Comando recomendado para no depender del chat
+
+Una vez creado Postgres en Railway, correr esto y dejarlo trabajando:
+
+```powershell
+.\scripts\run_railway_full_raw_load.ps1 -OpenWindow
+```
+
+Ese comando abre una ventana PowerShell separada, carga todas las tablas raw en orden, reintenta errores transitorios, saltea tablas ya completas, y deja reportes en `logs/`.
+
+Si se corta por internet, apagado o error de Railway, se puede volver a ejecutar el mismo comando. La carga es idempotente por `(source_zip, source_file, source_row)`.
+
+## Garantias del loader
+
+- Crea las tablas raw dinamicamente segun los headers reales de cada SQL.
+- Usa `id generated by default as identity`, no reutiliza los ids locales.
+- Usa indice unico `(source_zip, source_file, source_row)`.
+- Es idempotente: se puede cortar y reanudar; los duplicados se ignoran.
+- Soporta layouts variables dentro del mismo archivo, como `raw_adco`.
+- Imprime progreso cada 50.000 filas por defecto.
+- Registra corridas en `public.ingest_runs`.
+- Registra auditorias en `public.railway_load_audit`.
+
+## Decision de arquitectura
+
+Supabase queda para:
+
+- Auth/login.
+- Anon key publica del frontend.
+- Posibles tablas chicas de producto si conviene.
+
+Railway Postgres queda para:
+
+- L1 raw CAMMESA.
+- L2 semantica.
+- L3 marts/agregados.
+- Jobs pesados de parsing y refresh.
+
+La app debera leer datos analiticos desde una API/backend conectado a Railway Postgres, no directamente desde Supabase.
