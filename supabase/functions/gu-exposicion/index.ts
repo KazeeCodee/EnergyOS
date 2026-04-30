@@ -79,6 +79,21 @@ function parseMeses(value: string | null): number {
   return Math.max(1, Math.min(Math.trunc(parsed), 63));
 }
 
+/**
+ * Parsea el parámetro `hasta` con formato YYYY-MM. Devuelve null si no es válido
+ * (la query queda sin tope superior, equivalente a "último disponible").
+ */
+function parseHasta(value: string | null): { anio: number; mes: number } | null {
+  if (!value) return null;
+  const match = value.match(/^(\d{4})-(\d{1,2})$/);
+  if (!match) return null;
+  const anio = parseInt(match[1], 10);
+  const mes = parseInt(match[2], 10);
+  if (!Number.isFinite(anio) || anio < 1900 || anio > 2999) return null;
+  if (!Number.isFinite(mes) || mes < 1 || mes > 12) return null;
+  return { anio, mes };
+}
+
 function mapRow(row: ExpoRow): SeriePoint {
   const month = String(row.mes).padStart(2, "0");
   return {
@@ -175,6 +190,7 @@ Deno.serve(async (req) => {
   }
 
   const meses = parseMeses(url.searchParams.get("meses"));
+  const hasta = parseHasta(url.searchParams.get("hasta"));
   const sql = postgres(railwayDatabaseUrl, {
     max: 1,
     idle_timeout: 20,
@@ -186,26 +202,45 @@ Deno.serve(async (req) => {
   });
 
   try {
-    const rows = await sql<ExpoRow[]>`
-      select
-        tipo_agente, nemo, anio, mes, distribuidor_nemo,
-        demanda_real_mwh, demanda_real_pico_mwh, demanda_real_valle_mwh, demanda_real_resto_mwh,
-        demanda_contratada_mwh,
-        compra_spot_mwh, compra_spot_pico_mwh, compra_spot_valle_mwh, compra_spot_resto_mwh,
-        spot_pesos,
-        pct_spot, pct_mat,
-        sobre_contrato_mwh, sub_contrato_mwh,
-        costo_spot_promedio_pesos_mwh,
-        calidad_dato
-      from public.vw_exposicion_spot_mensual
-      where nemo = ${nemo}
-      order by anio desc, mes desc
-      limit ${meses}
-    `;
+    const rows = hasta
+      ? await sql<ExpoRow[]>`
+          select
+            tipo_agente, nemo, anio, mes, distribuidor_nemo,
+            demanda_real_mwh, demanda_real_pico_mwh, demanda_real_valle_mwh, demanda_real_resto_mwh,
+            demanda_contratada_mwh,
+            compra_spot_mwh, compra_spot_pico_mwh, compra_spot_valle_mwh, compra_spot_resto_mwh,
+            spot_pesos,
+            pct_spot, pct_mat,
+            sobre_contrato_mwh, sub_contrato_mwh,
+            costo_spot_promedio_pesos_mwh,
+            calidad_dato
+          from public.vw_exposicion_spot_mensual
+          where nemo = ${nemo}
+            and (anio < ${hasta.anio} or (anio = ${hasta.anio} and mes <= ${hasta.mes}))
+          order by anio desc, mes desc
+          limit ${meses}
+        `
+      : await sql<ExpoRow[]>`
+          select
+            tipo_agente, nemo, anio, mes, distribuidor_nemo,
+            demanda_real_mwh, demanda_real_pico_mwh, demanda_real_valle_mwh, demanda_real_resto_mwh,
+            demanda_contratada_mwh,
+            compra_spot_mwh, compra_spot_pico_mwh, compra_spot_valle_mwh, compra_spot_resto_mwh,
+            spot_pesos,
+            pct_spot, pct_mat,
+            sobre_contrato_mwh, sub_contrato_mwh,
+            costo_spot_promedio_pesos_mwh,
+            calidad_dato
+          from public.vw_exposicion_spot_mensual
+          where nemo = ${nemo}
+          order by anio desc, mes desc
+          limit ${meses}
+        `;
     const serie = rows.map(mapRow).reverse();
     return json({
       nemo,
       meses,
+      hasta: hasta ? `${hasta.anio}-${String(hasta.mes).padStart(2, "0")}` : null,
       autorizados,
       resumen: buildResumen(serie),
       serie,

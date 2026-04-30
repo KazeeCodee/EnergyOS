@@ -1,9 +1,24 @@
-import { useCallback } from "react";
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { useCallback, useState } from "react";
+import {
+  Bar,
+  Cell,
+  CartesianGrid,
+  Legend,
+  Line,
+  ComposedChart,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { AlertaBanner } from "../../components/app/AlertaBanner";
+import { ChartCard, chartAxisTick, chartGridStroke, chartTooltipStyle } from "../../components/app/ChartCard";
 import { DataFooter } from "../../components/app/DataFooter";
 import { EmptyState } from "../../components/app/EmptyState";
 import { ModuleHeader } from "../../components/app/ModuleHeader";
+import { RangeSelector } from "../../components/app/RangeSelector";
+import { StatCard } from "../../components/app/StatCard";
 import { LoadingScreen } from "../../components/ui/LoadingScreen";
 import { useAppContext } from "../../context/AppContext";
 import { useAsyncData } from "../../hooks/useAsyncData";
@@ -12,7 +27,7 @@ import type { HistoriaEnergeticaResponse } from "../../types/historiaEnergetica"
 
 function fmt(n: number | null | undefined, d = 1) { return n == null ? "—" : n.toFixed(d).replace(".", ","); }
 function fmtMwh(n: number | null | undefined) { return n == null ? "—" : `${n.toLocaleString("es-AR")} MWh`; }
-function fmtPct(n: number | null | undefined) { return n == null ? "—" : `${fmt(n)}%`; }
+function fmtPct(n: number | null | undefined) { return n == null ? "—" : `${fmt(n * 100)}%`; }
 function mesLabel(anio: number, mes: number) {
   return new Date(anio, mes - 1, 1).toLocaleDateString("es-AR", { month: "short", year: "2-digit" }).replace(".", "");
 }
@@ -23,74 +38,86 @@ const EMPTY: HistoriaEnergeticaResponse = {
   nemo: "", meses: 60, autorizados: [], serieMensual: [], heatmap: [], resumen: null,
 };
 
-// Heatmap usando un grid CSS
+// ---------------------------------------------------------------------------
+// Heatmap
+// ---------------------------------------------------------------------------
 function Heatmap({ data }: { data: HistoriaEnergeticaResponse["heatmap"] }) {
   if (data.length === 0) return null;
 
   const anios = [...new Set(data.map((d) => d.anio))].sort();
   const meses = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
-
   const byKey = new Map(data.map((d) => [`${d.anio}-${d.mes}`, d]));
+
+  const valoresValidos = data.filter((d) => d.demandaMwh != null);
+  const minVal = valoresValidos.length > 0 ? Math.min(...valoresValidos.map((d) => d.demandaMwh!)) : 0;
+  const maxVal = valoresValidos.length > 0 ? Math.max(...valoresValidos.map((d) => d.demandaMwh!)) : 0;
 
   function cellColor(intensidad: number | null): string {
     if (intensidad == null) return "#f1f5f9";
     const t = Math.max(0, Math.min(1, intensidad));
-    // Del teal claro (#5de2e2) al teal oscuro (#0e8a8a)
-    const r = Math.round(93 + (14 - 93) * t);
-    const g = Math.round(226 + (138 - 226) * t);
-    const b = Math.round(226 + (138 - 226) * t);
+    const r = Math.round(218 + (14 - 218) * t);
+    const g = Math.round(248 + (138 - 248) * t);
+    const b = Math.round(248 + (138 - 248) * t);
     return `rgb(${r},${g},${b})`;
   }
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm overflow-x-auto">
-      <p className="text-sm font-semibold text-slate-700 mb-4">Heatmap de consumo (5 años)</p>
-      <div className="min-w-[420px]">
-        {/* Header meses */}
-        <div className="grid grid-cols-[48px_repeat(12,1fr)] gap-1 mb-1">
-          <div />
-          {meses.map((m) => (
-            <div key={m} className="text-center text-[10px] font-semibold text-slate-400">{MES_LABELS[m]}</div>
+    <ChartCard
+      title="Heatmap de consumo por mes y año"
+      hint="Intensidad de color según el consumo mensual. Los meses más cálidos (oscuros) son los de mayor demanda. Útil para detectar estacionalidad."
+      right={
+        <span className="text-xs text-slate-400">
+          Min <strong className="text-slate-600">{minVal.toLocaleString("es-AR")}</strong> · Max <strong className="text-slate-600">{maxVal.toLocaleString("es-AR")} MWh</strong>
+        </span>
+      }
+    >
+      <div className="overflow-x-auto">
+        <div className="min-w-[420px]">
+          <div className="grid grid-cols-[48px_repeat(12,1fr)] gap-1 mb-1">
+            <div />
+            {meses.map((m) => (
+              <div key={m} className="text-center text-[10px] font-semibold text-slate-400">{MES_LABELS[m]}</div>
+            ))}
+          </div>
+          {anios.map((anio) => (
+            <div key={anio} className="grid grid-cols-[48px_repeat(12,1fr)] gap-1 mb-1">
+              <div className="flex items-center text-xs font-bold text-slate-600">{anio}</div>
+              {meses.map((mes) => {
+                const cell = byKey.get(`${anio}-${mes}`);
+                return (
+                  <div
+                    key={mes}
+                    className="group relative h-9 rounded transition-transform hover:scale-110 hover:z-10"
+                    style={{ backgroundColor: cellColor(cell?.intensidadNormalizada ?? null) }}
+                    title={cell ? `${MES_LABELS[mes]} ${anio}: ${cell.demandaMwh?.toLocaleString("es-AR") ?? "—"} MWh` : `${MES_LABELS[mes]} ${anio}: sin datos`}
+                  />
+                );
+              })}
+            </div>
           ))}
-        </div>
-        {/* Rows por año */}
-        {anios.map((anio) => (
-          <div key={anio} className="grid grid-cols-[48px_repeat(12,1fr)] gap-1 mb-1">
-            <div className="flex items-center text-[10px] font-semibold text-slate-500">{anio}</div>
-            {meses.map((mes) => {
-              const cell = byKey.get(`${anio}-${mes}`);
-              return (
-                <div
-                  key={mes}
-                  className="h-8 rounded"
-                  style={{ backgroundColor: cellColor(cell?.intensidadNormalizada ?? null) }}
-                  title={cell ? `${MES_LABELS[mes]} ${anio}: ${cell.demandaMwh?.toLocaleString("es-AR") ?? "—"} MWh` : `${MES_LABELS[mes]} ${anio}: sin datos`}
-                />
-              );
-            })}
+          <div className="mt-3 flex items-center gap-2 text-[10px] text-slate-400">
+            <span>Menor consumo</span>
+            <div className="flex gap-0.5">
+              {[0, 0.2, 0.4, 0.6, 0.8, 1].map((t) => {
+                const r = Math.round(218 + (14 - 218) * t);
+                const g = Math.round(248 + (138 - 248) * t);
+                const b = Math.round(248 + (138 - 248) * t);
+                return <div key={t} className="h-3 w-6 rounded-sm" style={{ backgroundColor: `rgb(${r},${g},${b})` }} />;
+              })}
+            </div>
+            <span>Mayor consumo</span>
           </div>
-        ))}
-        <div className="mt-2 flex items-center gap-2 text-[10px] text-slate-400">
-          <span>Menor consumo</span>
-          <div className="flex gap-0.5">
-            {[0, 0.2, 0.4, 0.6, 0.8, 1].map((t) => {
-              const r = Math.round(93 + (14 - 93) * t);
-              const g = Math.round(226 + (138 - 226) * t);
-              const b = Math.round(226 + (138 - 226) * t);
-              return <div key={t} className="h-3 w-5 rounded-sm" style={{ backgroundColor: `rgb(${r},${g},${b})` }} />;
-            })}
-          </div>
-          <span>Mayor consumo</span>
         </div>
       </div>
-    </div>
+    </ChartCard>
   );
 }
 
 export default function ModuloHistoria() {
   const { agente, ultimoMesDisponible } = useAppContext();
+  const [meses, setMeses] = useState(60);
 
-  const loader = useCallback(() => fetchHistoriaEnergetica({ nemo: agente?.nemo, meses: 60 }), [agente?.nemo]);
+  const loader = useCallback(() => fetchHistoriaEnergetica({ nemo: agente?.nemo, meses }), [agente?.nemo, meses]);
   const { data, loading, error } = useAsyncData<HistoriaEnergeticaResponse>(loader, EMPTY);
 
   if (loading) return <LoadingScreen messages={["Cargando historia energética..."]} />;
@@ -99,15 +126,29 @@ export default function ModuloHistoria() {
   const sinDatos = data.serieMensual.length === 0;
 
   const barData = data.serieMensual.map((p) => ({
-    mes: mesLabel(p.anio, p.mes), mwh: p.demandaMwh ?? 0, yoy: p.yoyPct,
+    mes: mesLabel(p.anio, p.mes),
+    mwh: p.demandaMwh ?? 0,
+    yoy: p.yoyPct != null ? p.yoyPct * 100 : null,
   }));
+
+  // Promedio para línea de referencia
+  const promedio = r?.demandaPromedioMensualMwh ?? 0;
 
   return (
     <div>
       <ModuleHeader
         title="Historia Energética"
-        subtitle="Módulo 4 · 5 años de historial, YoY, mayor y menor consumo"
-        tooltip="Muestra el historial completo de demanda declarada ante CAMMESA. Los datos YoY (year-over-year) comparan cada mes con el mismo mes del año anterior."
+        subtitle="Histórico mensual, YoY, picos y valles"
+        tooltip="Muestra el historial de demanda declarada ante CAMMESA. Los datos YoY (year-over-year) comparan cada mes con el mismo mes del año anterior."
+      />
+
+      <RangeSelector
+        meses={meses}
+        onMesesChange={setMeses}
+        ultimoMesDisponible={ultimoMesDisponible}
+        maxMeses={120}
+        presets={[12, 24, 36, 60, 120]}
+        label="Histórico"
       />
 
       {error && <AlertaBanner type="warning" message={error} />}
@@ -116,46 +157,97 @@ export default function ModuloHistoria() {
         <EmptyState icon="📅" title="Sin historial disponible" description="No encontramos historial de consumo para este agente. Es posible que sea un agente nuevo o que los datos aún no estén procesados." />
       ) : (
         <>
-          {/* Cards resumen */}
           {r && (
             <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
-              {[
-                { label: "Promedio mensual", value: fmtMwh(r.demandaPromedioMensualMwh), sub: `${r.mesesDisponibles} meses disponibles` },
-                { label: "Variación YoY", value: fmtPct(r.variacionYoyUltimoMesPct), sub: "Último mes vs. mismo mes año anterior" },
-                { label: "Mes mayor consumo", value: r.mesMayorConsumo.demandaMwh ? fmtMwh(r.mesMayorConsumo.demandaMwh) : "—", sub: r.mesMayorConsumo.periodo },
-                { label: "Mes menor consumo", value: r.mesMenorConsumo.demandaMwh ? fmtMwh(r.mesMenorConsumo.demandaMwh) : "—", sub: r.mesMenorConsumo.periodo },
-              ].map((c) => (
-                <div key={c.label} className="rounded-2xl border border-t-4 border-t-slate-200 bg-white p-5 shadow-sm">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">{c.label}</p>
-                  <p className="mt-2 text-xl font-bold text-[#163759]">{c.value}</p>
-                  <p className="mt-0.5 text-xs text-slate-500">{c.sub}</p>
-                </div>
-              ))}
+              <StatCard
+                label="Promedio mensual"
+                value={fmtMwh(r.demandaPromedioMensualMwh)}
+                sub={`${r.mesesDisponibles} meses disponibles`}
+                tone="teal"
+              />
+              <StatCard
+                label="Variación YoY"
+                value={fmtPct(r.variacionYoyUltimoMesPct)}
+                sub="Último mes vs. mismo mes año anterior"
+                tone={
+                  r.variacionYoyUltimoMesPct == null ? "default" :
+                  r.variacionYoyUltimoMesPct >= 0 ? "emerald" : "amber"
+                }
+                trend={r.variacionYoyUltimoMesPct != null ? { value: r.variacionYoyUltimoMesPct * 100, label: "YoY" } : undefined}
+              />
+              <StatCard
+                label="Mes mayor consumo"
+                value={r.mesMayorConsumo.demandaMwh ? fmtMwh(r.mesMayorConsumo.demandaMwh) : "—"}
+                sub={r.mesMayorConsumo.periodo}
+                tone="orange"
+              />
+              <StatCard
+                label="Mes menor consumo"
+                value={r.mesMenorConsumo.demandaMwh ? fmtMwh(r.mesMenorConsumo.demandaMwh) : "—"}
+                sub={r.mesMenorConsumo.periodo}
+                tone="indigo"
+              />
             </div>
           )}
 
-          {/* Heatmap */}
           <div className="mb-5">
             <Heatmap data={data.heatmap} />
           </div>
 
-          {/* Barras mensuales */}
+          {/* Barras + YoY combinado */}
           {barData.length > 0 && (
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <p className="text-sm font-semibold text-slate-700 mb-4">Demanda mensual histórica (MWh)</p>
-              <ResponsiveContainer height={220} width="100%">
-                <BarChart data={barData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                  <XAxis dataKey="mes" tick={{ fontSize: 10, fill: "#94a3b8" }} interval={5} />
-                  <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} width={55} />
+            <ChartCard
+              title="Demanda mensual histórica"
+              hint="Barras: demanda en MWh. Línea: variación YoY (%) para detectar tendencias."
+              right={promedio > 0 ? (
+                <span className="text-xs text-slate-400">
+                  Promedio: <strong className="text-slate-600">{promedio.toLocaleString("es-AR", { maximumFractionDigits: 0 })} MWh</strong>
+                </span>
+              ) : undefined}
+            >
+              <ResponsiveContainer height={260} width="100%">
+                <ComposedChart data={barData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={chartGridStroke} />
+                  <XAxis dataKey="mes" tick={{ fontSize: 10, fill: "#94a3b8" }} interval={Math.max(0, Math.floor(barData.length / 12) - 1)} />
+                  <YAxis yAxisId="left" tick={chartAxisTick} width={60} tickFormatter={(v) => (v as number).toLocaleString("es-AR")} />
+                  <YAxis yAxisId="right" orientation="right" tick={chartAxisTick} width={40} unit="%" />
                   <Tooltip
-                    contentStyle={{ borderRadius: 10, fontSize: 12 }}
-                    formatter={(v: unknown, n: unknown) => [n === "mwh" ? `${(v as number).toLocaleString("es-AR")} MWh` : `${(v as number).toFixed(1)}%`, n === "mwh" ? "Demanda" : "YoY"]}
+                    contentStyle={chartTooltipStyle}
+                    formatter={(v: unknown, n: unknown) => {
+                      const name = n as string;
+                      if (name === "Demanda") return [`${(v as number).toLocaleString("es-AR")} MWh`, name];
+                      return [`${(v as number).toFixed(1)}%`, name];
+                    }}
                   />
-                  <Bar dataKey="mwh" name="mwh" fill="#15caca" radius={[3, 3, 0, 0]} />
-                </BarChart>
+                  <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} iconType="circle" iconSize={8} />
+                  {promedio > 0 && (
+                    <ReferenceLine yAxisId="left" y={promedio} stroke="#94a3b8" strokeDasharray="4 3" />
+                  )}
+                  <Bar yAxisId="left" dataKey="mwh" name="Demanda" radius={[3, 3, 0, 0]}>
+                    {barData.map((d, i) => (
+                      <Cell
+                        key={i}
+                        fill={
+                          d.mwh > promedio * 1.1 ? "#0e8a8a" :
+                          d.mwh < promedio * 0.9 ? "#a7f3f3" :
+                          "#15caca"
+                        }
+                      />
+                    ))}
+                  </Bar>
+                  <Line
+                    yAxisId="right"
+                    dataKey="yoy"
+                    name="YoY"
+                    stroke="#f97316"
+                    strokeWidth={2}
+                    dot={false}
+                    type="monotone"
+                    connectNulls
+                  />
+                </ComposedChart>
               </ResponsiveContainer>
-            </div>
+            </ChartCard>
           )}
         </>
       )}

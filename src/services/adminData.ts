@@ -308,7 +308,11 @@ export async function isCurrentUserAdmin() {
     .select("is_admin")
     .eq("user_id", userData.user.id)
     .maybeSingle();
-  if (error) throw error;
+  if (error) {
+    const code = "code" in error ? error.code : "";
+    if (code === "PGRST205") return false;
+    throw error;
+  }
   return Boolean(data?.is_admin);
 }
 

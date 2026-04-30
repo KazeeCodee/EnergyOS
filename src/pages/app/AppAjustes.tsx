@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Building2, Calendar, KeyRound, LogOut, MessageSquare, User } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { AlertaBanner } from "../../components/app/AlertaBanner";
 import { DataFooter } from "../../components/app/DataFooter";
@@ -8,12 +9,25 @@ import { supabase } from "../../lib/supabase";
 import { clearSession } from "../../utils/session";
 
 // ---------------------------------------------------------------------------
-// Sección wrapper
+// Sección wrapper con icono
 // ---------------------------------------------------------------------------
-function Seccion({ title, children }: { title: string; children: React.ReactNode }) {
+function Seccion({
+  title,
+  icon: Icon,
+  children,
+}: {
+  title: string;
+  icon: React.ElementType;
+  children: React.ReactNode;
+}) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-      <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-400 mb-4">{title}</h2>
+    <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition-shadow hover:shadow-md">
+      <div className="mb-4 flex items-center gap-2">
+        <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#15caca]/10 text-[#0e8a8a]">
+          <Icon size={15} />
+        </span>
+        <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500">{title}</h2>
+      </div>
       {children}
     </div>
   );
@@ -26,18 +40,15 @@ export default function AppAjustes() {
   const { agente, profile, ultimoMesDisponible } = useAppContext();
   const navigate = useNavigate();
 
-  // Feedback
   const [feedback, setFeedback] = useState("");
   const [feedbackSent, setFeedbackSent] = useState(false);
   const [feedbackError, setFeedbackError] = useState("");
   const [sendingFeedback, setSendingFeedback] = useState(false);
 
-  // Reset password
   const [resetSent, setResetSent] = useState(false);
   const [resetError, setResetError] = useState("");
   const [sendingReset, setSendingReset] = useState(false);
 
-  // Logout confirm
   const [confirmLogout, setConfirmLogout] = useState(false);
 
   const handleResetPassword = async () => {
@@ -62,16 +73,17 @@ export default function AppAjustes() {
     setSendingFeedback(true);
     setFeedbackError("");
     try {
-      const { error } = await supabase.from("feedback").insert({
-        mensaje: feedback.trim(),
-        nemo: agente?.nemo ?? null,
-        created_at: new Date().toISOString(),
+      const { data: authData } = await supabase.auth.getUser();
+      const { error } = await supabase.from("contact_messages").insert({
+        name: profile?.displayName ?? profile?.fullName ?? "Usuario EnergyOS",
+        company: agente?.descripcion ?? agente?.nemo ?? null,
+        email: authData.user?.email ?? "sin-email@energyos.local",
+        message: `[Feedback app${agente?.nemo ? ` · ${agente.nemo}` : ""}]\n\n${feedback.trim()}`,
       });
       if (error) throw error;
       setFeedbackSent(true);
       setFeedback("");
     } catch {
-      // Fallback: abrir mailto
       window.location.href = `mailto:soporte@energyos.com.ar?subject=Feedback EnergyOS&body=${encodeURIComponent(feedback)}`;
     }
     setSendingFeedback(false);
@@ -84,11 +96,11 @@ export default function AppAjustes() {
 
   return (
     <div>
-      <ModuleHeader title="Ajustes" subtitle="Configuración de tu cuenta y empresa" />
+      <ModuleHeader title="Ajustes" subtitle="Tu cuenta, empresa vinculada y preferencias" />
 
       <div className="grid gap-5 lg:grid-cols-2">
         {/* Perfil */}
-        <Seccion title="Tu perfil">
+        <Seccion title="Tu perfil" icon={User}>
           <dl className="space-y-3">
             <div>
               <dt className="text-xs text-slate-400">Nombre</dt>
@@ -106,7 +118,7 @@ export default function AppAjustes() {
         </Seccion>
 
         {/* Empresa vinculada */}
-        <Seccion title="Empresa vinculada">
+        <Seccion title="Empresa vinculada" icon={Building2}>
           {agente ? (
             <dl className="space-y-3">
               <div>
@@ -127,7 +139,7 @@ export default function AppAjustes() {
                   <dd className="mt-0.5 text-sm text-slate-700">{agente.agrupacion}</dd>
                 </div>
               )}
-              <div className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-[#15caca]/10 px-3 py-1 text-xs font-semibold text-[#0e8a8a]">
+              <div className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
                 ✓ Empresa vinculada
               </div>
             </dl>
@@ -137,7 +149,7 @@ export default function AppAjustes() {
         </Seccion>
 
         {/* Estado de datos */}
-        <Seccion title="Estado de datos">
+        <Seccion title="Estado de datos" icon={Calendar}>
           <div className="space-y-3">
             <div className="flex items-start gap-3 rounded-xl bg-slate-50 px-4 py-3">
               <span className="text-xl">📅</span>
@@ -153,22 +165,22 @@ export default function AppAjustes() {
             <div className="flex items-start gap-3 rounded-xl bg-slate-50 px-4 py-3">
               <span className="text-xl">🔌</span>
               <div>
-                <p className="text-sm font-semibold text-slate-700">Fuente de datos</p>
-                <p className="text-xs text-slate-500">CAMMESA — Mercado Eléctrico Mayorista Argentina</p>
+                <p className="text-sm font-semibold text-slate-700">Fuente</p>
+                <p className="text-xs text-slate-500">CAMMESA · Mercado Eléctrico Mayorista Argentina</p>
               </div>
             </div>
             <div className="flex items-start gap-3 rounded-xl bg-slate-50 px-4 py-3">
               <span className="text-xl">🔄</span>
               <div>
-                <p className="text-sm font-semibold text-slate-700">Actualización</p>
-                <p className="text-xs text-slate-500">Los datos se actualizan mensualmente con la publicación de CAMMESA.</p>
+                <p className="text-sm font-semibold text-slate-700">Frecuencia de actualización</p>
+                <p className="text-xs text-slate-500">Mensual, junto con la publicación oficial de CAMMESA.</p>
               </div>
             </div>
           </div>
         </Seccion>
 
         {/* Seguridad */}
-        <Seccion title="Seguridad">
+        <Seccion title="Seguridad" icon={KeyRound}>
           <div className="space-y-4">
             <div>
               <p className="text-sm font-medium text-slate-700 mb-2">Restablecer contraseña</p>
@@ -191,7 +203,7 @@ export default function AppAjustes() {
         </Seccion>
 
         {/* Feedback */}
-        <Seccion title="Feedback y contacto">
+        <Seccion title="Feedback y contacto" icon={MessageSquare}>
           {feedbackSent ? (
             <AlertaBanner type="success" message="¡Gracias por tu feedback! Lo revisaremos pronto." />
           ) : (
@@ -218,7 +230,7 @@ export default function AppAjustes() {
         </Seccion>
 
         {/* Cerrar sesión */}
-        <Seccion title="Sesión">
+        <Seccion title="Sesión" icon={LogOut}>
           {!confirmLogout ? (
             <div>
               <p className="text-sm text-slate-500 mb-4">Al cerrar sesión necesitarás volver a ingresar tus credenciales.</p>

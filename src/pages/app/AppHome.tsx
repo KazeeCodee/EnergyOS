@@ -1,4 +1,5 @@
 import { useCallback } from "react";
+import { Activity, Gauge, Leaf, ShieldCheck } from "lucide-react";
 import {
   Area,
   AreaChart,
@@ -12,8 +13,10 @@ import {
   YAxis,
 } from "recharts";
 import { AlertaBanner } from "../../components/app/AlertaBanner";
+import { ChartCard, chartAxisTick, chartGridStroke, chartTooltipStyle } from "../../components/app/ChartCard";
 import { DataFooter } from "../../components/app/DataFooter";
 import { EmptyState } from "../../components/app/EmptyState";
+import { StatCard } from "../../components/app/StatCard";
 import { LoadingScreen } from "../../components/ui/LoadingScreen";
 import { useAppContext } from "../../context/AppContext";
 import { fetchInformeInicio } from "../../services/informeInicio";
@@ -31,7 +34,7 @@ function fmt(n: number | null | undefined, decimals = 1): string {
 
 function fmtPct(n: number | null | undefined): string {
   if (n == null) return "—";
-  return `${fmt(n)}%`;
+  return `${fmt(n * 100)}%`;
 }
 
 function fmtGwh(n: number | null | undefined): string {
@@ -47,40 +50,6 @@ function mesLabel(anioMes: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Sub-components
-// ---------------------------------------------------------------------------
-
-function StatCard({
-  label,
-  value,
-  sub,
-  highlight,
-  color,
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-  highlight?: boolean;
-  color?: "teal" | "red" | "amber" | "default";
-}) {
-  const colors = {
-    teal:    "border-t-[#15caca] bg-[#15caca]/5",
-    red:     "border-t-red-400 bg-red-50",
-    amber:   "border-t-amber-400 bg-amber-50",
-    default: "border-t-slate-200 bg-white",
-  };
-  return (
-    <div
-      className={`rounded-2xl border border-slate-200 border-t-4 p-5 shadow-sm ${colors[color ?? "default"]} ${highlight ? "ring-2 ring-[#15caca]/30" : ""}`}
-    >
-      <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">{label}</p>
-      <p className="mt-2 text-2xl font-bold text-[#163759]">{value}</p>
-      {sub && <p className="mt-0.5 text-xs text-slate-500">{sub}</p>}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Alertas automáticas
 // ---------------------------------------------------------------------------
 
@@ -88,7 +57,7 @@ function Alertas({ cliente }: { cliente: InformeInicioResponse["cliente"] }) {
   const alertas: { type: "danger" | "warning"; message: string }[] = [];
 
   const spotPct = cliente.demandaMes?.mix?.spotPct;
-  if (spotPct != null && spotPct > 70) {
+  if (spotPct != null && spotPct > 0.7) {
     alertas.push({ type: "danger", message: `Alta exposición spot este mes: ${fmtPct(spotPct)} de tu energía se compró en el mercado spot.` });
   }
 
@@ -118,63 +87,96 @@ function GraficoDemandaAnual({ serie }: { serie: InformeInicioResponse["cliente"
 
   if (data.length === 0) return null;
 
+  const promedio = data.reduce((acc, d) => acc + d.mwh, 0) / data.length;
+
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <p className="text-sm font-semibold text-slate-700 mb-4">Demanda — Año móvil (MWh)</p>
-      <ResponsiveContainer height={200} width="100%">
-        <AreaChart data={data}>
+    <ChartCard
+      title="Demanda — año móvil"
+      hint="Energía mensual declarada ante CAMMESA durante los últimos 12 meses."
+      right={<span className="text-xs text-slate-400">Promedio: <strong className="text-slate-600">{promedio.toLocaleString("es-AR", { maximumFractionDigits: 0 })} MWh</strong></span>}
+    >
+      <ResponsiveContainer height={220} width="100%">
+        <AreaChart data={data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
           <defs>
             <linearGradient id="demGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor="#15caca" stopOpacity={0.15} />
+              <stop offset="5%" stopColor="#15caca" stopOpacity={0.25} />
               <stop offset="95%" stopColor="#15caca" stopOpacity={0} />
             </linearGradient>
           </defs>
-          <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-          <XAxis dataKey="mes" tick={{ fontSize: 11, fill: "#94a3b8" }} />
-          <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} width={50} />
+          <CartesianGrid strokeDasharray="3 3" stroke={chartGridStroke} />
+          <XAxis dataKey="mes" tick={chartAxisTick} />
+          <YAxis tick={chartAxisTick} width={55} />
           <Tooltip
-            contentStyle={{ borderRadius: 10, fontSize: 12, border: "1px solid #e2e8f0" }}
+            contentStyle={chartTooltipStyle}
             formatter={(v: unknown) => [`${(v as number).toLocaleString("es-AR")} MWh`, "Demanda"]}
           />
-          <Area dataKey="mwh" fill="url(#demGrad)" stroke="#15caca" strokeWidth={2} type="monotone" />
+          <Area dataKey="mwh" fill="url(#demGrad)" stroke="#15caca" strokeWidth={2.5} type="monotone" />
         </AreaChart>
       </ResponsiveContainer>
-    </div>
+    </ChartCard>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Gráfico: Mix spot / MAT
+// Gráfico: Mix spot / MATER / Resto — donut tipo barra horizontal segmentada
 // ---------------------------------------------------------------------------
 
 function GraficoMix({ mix }: { mix: InformeInicioMix | null }) {
   if (!mix) return null;
-  const data = [
-    { name: "Spot", value: mix.spotPct ?? 0, color: "#f97316" },
-    { name: "MATER", value: mix.materEstimadoPct ?? 0, color: "#15caca" },
-    { name: "Resto", value: mix.plusPct ?? 0, color: "#94a3b8" },
+  const segments = [
+    { name: "Spot",   value: (mix.spotPct ?? 0) * 100,           color: "#f97316" },
+    { name: "MATER",  value: (mix.materEstimadoPct ?? 0) * 100,  color: "#15caca" },
+    { name: "Resto",  value: (mix.plusPct ?? 0) * 100,           color: "#94a3b8" },
   ].filter((d) => d.value > 0);
 
-  if (data.length === 0) return null;
+  if (segments.length === 0) return null;
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <p className="text-sm font-semibold text-slate-700 mb-4">Mix de compra (% del mes)</p>
-      <ResponsiveContainer height={160} width="100%">
-        <BarChart data={data} layout="vertical">
-          <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
-          <XAxis type="number" tick={{ fontSize: 11, fill: "#94a3b8" }} domain={[0, 100]} unit="%" />
-          <YAxis type="category" dataKey="name" tick={{ fontSize: 12, fill: "#64748b" }} width={48} />
+    <ChartCard
+      title="Mix de compra del mes"
+      hint="Cómo se reparte tu energía del mes entre el mercado spot, contratos MATER y resto (bilaterales / plus)."
+    >
+      {/* Barra segmentada */}
+      <div className="mb-5">
+        <div className="flex h-10 w-full overflow-hidden rounded-xl bg-slate-100">
+          {segments.map((s) => (
+            <div
+              key={s.name}
+              className="flex items-center justify-center text-[11px] font-bold text-white transition-all"
+              style={{ width: `${s.value}%`, backgroundColor: s.color, minWidth: s.value > 0 ? 32 : 0 }}
+              title={`${s.name}: ${s.value.toFixed(1)}%`}
+            >
+              {s.value >= 8 ? `${Math.round(s.value)}%` : ""}
+            </div>
+          ))}
+        </div>
+        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs">
+          {segments.map((s) => (
+            <span key={s.name} className="inline-flex items-center gap-1.5 text-slate-600">
+              <span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: s.color }} />
+              <strong>{s.name}</strong>
+              <span className="text-slate-400">{s.value.toFixed(1)}%</span>
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* Detalle barras horizontal */}
+      <ResponsiveContainer height={120} width="100%">
+        <BarChart data={segments} layout="vertical" margin={{ top: 0, right: 8, left: 0, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke={chartGridStroke} horizontal={false} />
+          <XAxis type="number" tick={chartAxisTick} domain={[0, 100]} unit="%" />
+          <YAxis type="category" dataKey="name" tick={{ fontSize: 12, fill: "#64748b" }} width={56} />
           <Tooltip
-            contentStyle={{ borderRadius: 10, fontSize: 12 }}
+            contentStyle={chartTooltipStyle}
             formatter={(v: unknown, name: unknown) => [`${(v as number).toFixed(1)}%`, name as string]}
           />
           <Bar dataKey="value" radius={[0, 6, 6, 0]}>
-            {data.map((d, i) => <Cell key={i} fill={d.color} />)}
+            {segments.map((d, i) => <Cell key={i} fill={d.color} />)}
           </Bar>
         </BarChart>
       </ResponsiveContainer>
-    </div>
+    </ChartCard>
   );
 }
 
@@ -185,29 +187,35 @@ function GraficoMix({ mix }: { mix: InformeInicioMix | null }) {
 function ContextoMEM({ mercado }: { mercado: InformeInicioResponse["mercado"] }) {
   if (!mercado) return null;
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-4">Contexto MEM</p>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+    <div className="rounded-2xl border border-slate-200 bg-gradient-to-br from-white to-slate-50 p-5 shadow-sm">
+      <div className="mb-4 flex items-center justify-between">
+        <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Contexto MEM</p>
+        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
+          Fuente {mercado.fuente} · {mercado.periodoCompleto ? "completo" : "parcial"}
+        </span>
+      </div>
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
         <div>
           <p className="text-xs text-slate-500">Generación total</p>
-          <p className="font-bold text-[#163759]">{fmtGwh(mercado.generacionTotalGwh)}</p>
+          <p className="mt-0.5 text-lg font-bold text-[#163759] tabular-nums">{fmtGwh(mercado.generacionTotalGwh)}</p>
           {mercado.generacionTotalYoyPct != null && (
-            <p className={`text-xs font-medium ${mercado.generacionTotalYoyPct >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+            <p className={`text-xs font-semibold ${mercado.generacionTotalYoyPct >= 0 ? "text-emerald-600" : "text-red-500"}`}>
               {mercado.generacionTotalYoyPct >= 0 ? "▲" : "▼"} {fmtPct(Math.abs(mercado.generacionTotalYoyPct))} YoY
             </p>
           )}
         </div>
         <div>
           <p className="text-xs text-slate-500">MATER</p>
-          <p className="font-bold text-[#163759]">{fmtGwh(mercado.generacionMaterGwh)}</p>
+          <p className="mt-0.5 text-lg font-bold text-[#163759] tabular-nums">{fmtGwh(mercado.generacionMaterGwh)}</p>
           {mercado.pctRenovableSistema != null && (
             <p className="text-xs text-slate-500">{fmtPct(mercado.pctRenovableSistema)} del sistema</p>
           )}
         </div>
         <div>
-          <p className="text-xs text-slate-500">Fuente</p>
-          <p className="text-sm font-semibold text-slate-700">{mercado.fuente}</p>
-          <p className="text-xs text-slate-400">{mercado.periodoCompleto ? "Período completo" : "Parcial"}</p>
+          <p className="text-xs text-slate-500">Última publicación</p>
+          <p className="mt-0.5 text-sm font-semibold text-slate-700">
+            {mercado.fuenteHasta ?? "—"}
+          </p>
         </div>
       </div>
     </div>
@@ -257,15 +265,17 @@ export default function AppHome() {
 
   const { cliente, mercado, contexto } = data;
   const demandaMes = cliente.demandaMes;
+  const spotPct = demandaMes?.mix?.spotPct ?? 0;
 
   return (
     <div>
       {/* Encabezado */}
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-[#163759]">
-          {cliente.descripcion ?? agente?.descripcion ?? "Informe Energético"}
+        <p className="text-[11px] font-bold uppercase tracking-wider text-[#15caca]">Informe energético</p>
+        <h1 className="mt-1 text-2xl font-bold text-[#163759] tracking-tight">
+          {cliente.descripcion ?? agente?.descripcion ?? "—"}
         </h1>
-        <p className="mt-0.5 text-sm text-slate-500">
+        <p className="mt-1 text-sm text-slate-500">
           {cliente.tipoAgente ?? agente?.tipoAgente}
           {cliente.agrupacion ? ` · ${cliente.agrupacion}` : ""}
           {contexto.periodo ? ` · ${contexto.periodo}` : ""}
@@ -299,39 +309,40 @@ export default function AppHome() {
 
       {/* Cards ejecutivas */}
       {cliente.disponible && (
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-6">
+        <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
           <StatCard
             label="Demanda del mes"
             value={fmtGwh(demandaMes?.totalGwh)}
-            sub="Total declarado CAMMESA"
-            color="teal"
+            sub="Total declarado"
+            tone="teal"
+            icon={<Activity size={16} />}
           />
           <StatCard
             label="Exposición Spot"
-            value={fmtPct(demandaMes?.mix?.spotPct)}
+            value={fmtPct(spotPct)}
             sub={`${fmtPct(demandaMes?.mix?.materEstimadoPct)} MATER`}
-            color={
-              (demandaMes?.mix?.spotPct ?? 0) > 70 ? "red" :
-              (demandaMes?.mix?.spotPct ?? 0) > 40 ? "amber" : "teal"
-            }
+            tone={spotPct > 0.7 ? "red" : spotPct > 0.4 ? "amber" : "teal"}
+            icon={<Gauge size={16} />}
           />
           <StatCard
             label="Renovable anual"
             value={fmtPct(cliente.pctRenovableAnio)}
             sub="Año móvil"
-            color="default"
+            tone="emerald"
+            icon={<Leaf size={16} />}
           />
           <StatCard
             label="Ley 27.191"
             value={
-              cliente.cumple27191 === true ? "Cumple ✅" :
-              cliente.cumple27191 === false ? "No cumple ⚠️" : "—"
+              cliente.cumple27191 === true ? "Cumple" :
+              cliente.cumple27191 === false ? "No cumple" : "—"
             }
             sub="Cupo renovable"
-            color={
+            tone={
               cliente.cumple27191 === false ? "amber" :
-              cliente.cumple27191 === true ? "teal" : "default"
+              cliente.cumple27191 === true ? "emerald" : "default"
             }
+            icon={<ShieldCheck size={16} />}
           />
         </div>
       )}

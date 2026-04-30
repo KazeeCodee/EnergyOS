@@ -22,10 +22,6 @@ import {
 
 const ROL_OPTIONS: { value: UserRole; label: string; description: string; emoji: string }[] = [
   { value: "gran_consumidor", label: "Gran Consumidor", description: "GUMA, GUME, GUPA o Gran Demanda en Distribuidor", emoji: "🏭" },
-  { value: "generador", label: "Generador", description: "Central generadora conectada al MEM", emoji: "⚡" },
-  { value: "distribuidor", label: "Distribuidor", description: "Distribuidora eléctrica o cooperativa", emoji: "🔌" },
-  { value: "comercializador", label: "Comercializador", description: "Comercializador de demanda o generación", emoji: "📊" },
-  { value: "analista", label: "Analista", description: "Acceso de análisis a cualquier agente", emoji: "🔍" },
 ];
 
 function useDebounce<T>(value: T, delayMs: number): T {
