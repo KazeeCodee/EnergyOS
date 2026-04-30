@@ -27,16 +27,19 @@ function cacheSession(session: Session) {
 
 async function enforceTrialGate(userId: string) {
   const { data, error } = await supabase
-    .from("trial_accounts")
-    .select("status, expires_at")
+    .from("user_profiles")
+    .select("trial_status, trial_expires_at")
     .eq("user_id", userId)
     .maybeSingle();
 
   if (error) return;
   if (!data) return;
+  if (data.trial_status === null || data.trial_status === undefined) return;
 
-  const expired = new Date(data.expires_at).getTime() <= Date.now();
-  if (data.status !== "active" || expired) {
+  const expired =
+    data.trial_expires_at !== null &&
+    new Date(data.trial_expires_at).getTime() <= Date.now();
+  if (data.trial_status !== "active" || expired) {
     await supabase.auth.signOut();
     sessionStorage.removeItem(KEY);
     throw new Error(
@@ -130,15 +133,16 @@ export async function getCurrentTrial(): Promise<CurrentTrial | null> {
   if (!userId) return null;
 
   const { data, error } = await supabase
-    .from("trial_accounts")
-    .select("expires_at, status, full_name, company")
+    .from("user_profiles")
+    .select("trial_expires_at, trial_status, full_name, company")
     .eq("user_id", userId)
     .maybeSingle();
 
   if (error || !data) return null;
+  if (!data.trial_status || !data.trial_expires_at) return null;
   return {
-    expiresAt: data.expires_at,
-    status: data.status,
+    expiresAt: data.trial_expires_at,
+    status: data.trial_status,
     fullName: data.full_name ?? null,
     company: data.company ?? null,
   };
