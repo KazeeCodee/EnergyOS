@@ -21,7 +21,7 @@ import {
 // ---------------------------------------------------------------------------
 
 const ROL_OPTIONS: { value: UserRole; label: string; description: string; emoji: string }[] = [
-  { value: "gran_consumidor", label: "Gran Consumidor", description: "GUMA, GUME, GUPA o Gran Demanda en Distribuidor", emoji: "🏭" },
+  { value: "gran_consumidor", label: "Gran Consumidor", description: "GUMA o GUME con datos publicados", emoji: "🏭" },
 ];
 
 function useDebounce<T>(value: T, delayMs: number): T {
@@ -164,7 +164,7 @@ function PasoAgente({
     <div>
       <h2 className="text-xl font-bold text-[#163759]">Buscá tu empresa en CAMMESA</h2>
       <p className="mt-1 text-sm text-slate-500">
-        Ingresá NEMO, razón social o tipo de agente. Solo se muestran{" "}
+        Ingresá NEMO o razón social. Solo se muestran agentes con dashboard publicado:{" "}
         <strong>{tipos ? tipos.slice(0, 3).join(", ") : "todos los agentes"}</strong>.
       </p>
 

@@ -42,14 +42,12 @@ export type AgenteSearchResult = {
 
 // Tipos de agente CAMMESA que califican como "gran consumidor".
 // Usado en el step 3 del onboarding para filtrar el catálogo (8.721 agentes).
-export const GRAN_CONSUMIDOR_TIPOS: string[] = [
+export const DASHBOARD_SUPPORTED_GRAN_CONSUMIDOR_TIPOS: string[] = [
   "Gran Usuario Mayor (GUMA)",
   "Gran Usuario Menor (GUME)",
-  "Gran Usuario Particular (GUPA)",
-  "GRAN DEMANDA EN DISTRIBUIDOR",
-  "Autogenerador",
-  "Cogenerador",
 ];
+
+export const GRAN_CONSUMIDOR_TIPOS: string[] = DASHBOARD_SUPPORTED_GRAN_CONSUMIDOR_TIPOS;
 
 export const GENERADOR_TIPOS: string[] = ["Generador", "Cogenerador"];
 
@@ -77,4 +75,9 @@ export function tiposForRole(role: UserRole): string[] | null {
     case "analista":
       return null; // analista puede vincular cualquier agente
   }
+}
+
+export function isDashboardSupportedTipoAgente(tipoAgente: string | null | undefined): boolean {
+  if (!tipoAgente) return false;
+  return DASHBOARD_SUPPORTED_GRAN_CONSUMIDOR_TIPOS.includes(tipoAgente);
 }
