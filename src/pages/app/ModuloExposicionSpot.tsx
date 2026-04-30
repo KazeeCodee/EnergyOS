@@ -53,11 +53,10 @@ const EMPTY: ExposicionSpotResponse = {
 export default function ModuloExposicionSpot() {
   const { agente, ultimoMesDisponible } = useAppContext();
   const [meses, setMeses] = useState(12);
-  const [anchorMes, setAnchorMes] = useState<string>("");
 
   const loader = useCallback(
-    () => fetchExposicionSpotMensual({ nemo: agente?.nemo, meses, hasta: anchorMes || null }),
-    [agente?.nemo, meses, anchorMes],
+    () => fetchExposicionSpotMensual({ nemo: agente?.nemo, meses }),
+    [agente?.nemo, meses],
   );
   const { data, loading, error } = useAsyncData<ExposicionSpotResponse>(loader, EMPTY);
 
@@ -106,8 +105,6 @@ export default function ModuloExposicionSpot() {
       <RangeSelector
         meses={meses}
         onMesesChange={setMeses}
-        anchorMes={anchorMes || ultimoMesDisponible}
-        onAnchorChange={(mes) => setAnchorMes(mes === ultimoMesDisponible ? "" : mes)}
         ultimoMesDisponible={ultimoMesDisponible}
         maxMeses={60}
       />

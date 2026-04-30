@@ -39,8 +39,6 @@ export type ExposicionSpotResumen = {
 export type ExposicionSpotResponse = {
   nemo: string;
   meses: number;
-  /** Mes ancla (YYYY-MM) usado como tope superior. null = último disponible. */
-  hasta?: string | null;
   autorizados: string[];
   resumen: ExposicionSpotResumen;
   serie: ExposicionSpotPoint[];

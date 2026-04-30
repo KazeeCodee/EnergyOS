@@ -4,8 +4,6 @@ import type { ExposicionSpotResponse } from "../types/exposicionSpot";
 export type FetchExposicionOptions = {
   nemo?: string;
   meses?: number;
-  /** Mes ancla "hasta" (YYYY-MM). Si se omite, usa el último disponible. */
-  hasta?: string | null;
 };
 
 export async function fetchExposicionSpotMensual(
@@ -14,7 +12,6 @@ export async function fetchExposicionSpotMensual(
   const params = new URLSearchParams();
   if (opts.nemo) params.set("nemo", opts.nemo);
   if (opts.meses) params.set("meses", String(opts.meses));
-  if (opts.hasta) params.set("hasta", opts.hasta);
 
   const { data, error } = await supabase.functions.invoke<ExposicionSpotResponse>(
     `gu-exposicion${params.size > 0 ? `?${params.toString()}` : ""}`,
