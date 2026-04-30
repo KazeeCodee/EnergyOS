@@ -144,7 +144,7 @@ export async function getCurrentTrial(): Promise<CurrentTrial | null> {
   };
 }
 
-export function clearSession() {
+export async function clearSession() {
   sessionStorage.removeItem(KEY);
-  void supabase.auth.signOut();
+  await supabase.auth.signOut();
 }

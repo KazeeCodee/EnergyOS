@@ -1,6 +1,7 @@
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { supabase } from "../lib/supabase";
 import { fetchInformeInicio } from "../services/informeInicio";
-import { fetchMyAgentes, fetchMyProfile, loadOnboardingState } from "../services/onboarding";
+import { loadOnboardingState } from "../services/onboarding";
 import type { LinkedAgente, MyProfile } from "../types/onboarding";
 import { syncSessionFromSupabase } from "../utils/session";
 
@@ -40,22 +41,28 @@ export function useAppContext(): AppContextValue {
 // Provider
 // ---------------------------------------------------------------------------
 
-async function loadAppState(): Promise<{
+type LoadedAppState = {
   status: AppStatus;
   profile: MyProfile | null;
   agente: LinkedAgente | null;
   ultimoMesDisponible: string;
-}> {
+};
+
+function unauthenticatedAppState(): LoadedAppState {
+  return { status: "unauthenticated", profile: null, agente: null, ultimoMesDisponible: "" };
+}
+
+async function loadAppState(): Promise<LoadedAppState> {
   // 1. Verificar sesión Supabase
   let session: Awaited<ReturnType<typeof syncSessionFromSupabase>>;
   try {
     session = await syncSessionFromSupabase();
   } catch {
-    return { status: "unauthenticated", profile: null, agente: null, ultimoMesDisponible: "" };
+    return unauthenticatedAppState();
   }
 
   if (!session) {
-    return { status: "unauthenticated", profile: null, agente: null, ultimoMesDisponible: "" };
+    return unauthenticatedAppState();
   }
 
   // 2. Cargar estado de onboarding
@@ -84,45 +91,76 @@ export function AppContextProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<MyProfile | null>(null);
   const [agente, setAgente] = useState<LinkedAgente | null>(null);
   const [ultimoMesDisponible, setUltimoMesDisponible] = useState("");
+  const requestSeq = useRef(0);
+  const authUserId = useRef<string | null>(null);
+  const authReloadTimer = useRef<number | null>(null);
+
+  const applyState = useCallback((state: LoadedAppState) => {
+    setStatus(state.status);
+    setProfile(state.profile);
+    setAgente(state.agente);
+    setUltimoMesDisponible(state.ultimoMesDisponible);
+  }, []);
+
+  const resetUserState = useCallback(() => {
+    setStatus("unauthenticated");
+    setProfile(null);
+    setAgente(null);
+    setUltimoMesDisponible("");
+  }, []);
 
   const load = useCallback(async () => {
+    const seq = ++requestSeq.current;
     setStatus("loading");
     try {
       const state = await loadAppState();
-      setStatus(state.status);
-      setProfile(state.profile);
-      setAgente(state.agente);
-      setUltimoMesDisponible(state.ultimoMesDisponible);
+      if (seq !== requestSeq.current) return;
+      applyState(state);
     } catch {
-      setStatus("unauthenticated");
+      if (seq === requestSeq.current) resetUserState();
     }
-  }, []);
+  }, [applyState, resetUserState]);
 
-  // Refresca perfil y agente sin volver a verificar sesión (post-onboarding)
-  const refresh = useCallback(async () => {
-    try {
-      const [newProfile, agentes] = await Promise.all([fetchMyProfile(), fetchMyAgentes()]);
-      setProfile(newProfile);
-      setAgente(agentes[0] ?? null);
-
-      const { nextStep } = await loadOnboardingState();
-      if (nextStep === "done") {
-        setStatus("ready");
-        try {
-          const informe = await fetchInformeInicio({ nemo: agentes[0]?.nemo });
-          setUltimoMesDisponible(informe.contexto.ultimoMesDisponible ?? "");
-        } catch {
-          // best-effort
-        }
-      }
-    } catch {
-      // mantiene estado previo
-    }
-  }, []);
+  // Recarga sesión, perfil y agente para evitar estado cruzado entre usuarios.
+  const refresh = load;
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    const scheduleLoad = () => {
+      if (authReloadTimer.current) window.clearTimeout(authReloadTimer.current);
+      authReloadTimer.current = window.setTimeout(() => {
+        authReloadTimer.current = null;
+        void load();
+      }, 0);
+    };
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      const nextUserId = session?.user?.id ?? null;
+
+      if (event === "SIGNED_OUT" || !nextUserId) {
+        authUserId.current = null;
+        requestSeq.current += 1;
+        if (authReloadTimer.current) window.clearTimeout(authReloadTimer.current);
+        authReloadTimer.current = null;
+        resetUserState();
+        return;
+      }
+
+      const changedUser = nextUserId !== authUserId.current;
+      authUserId.current = nextUserId;
+
+      if (event === "INITIAL_SESSION" || event === "USER_UPDATED" || changedUser) {
+        scheduleLoad();
+      }
+    });
+
+    return () => {
+      requestSeq.current += 1;
+      if (authReloadTimer.current) window.clearTimeout(authReloadTimer.current);
+      subscription.unsubscribe();
+    };
+  }, [load, resetUserState]);
 
   return (
     <AppContext.Provider value={{ status, profile, agente, ultimoMesDisponible, refresh }}>

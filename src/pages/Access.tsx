@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "../components/ui/Button";
 import { LoadingScreen } from "../components/ui/LoadingScreen";
 import { Logo } from "../components/ui/Logo";
+import { useAppContext } from "../context/AppContext";
 import { isCurrentUserAdmin } from "../services/adminData";
 import { getCurrentTrial, setSession } from "../utils/session";
 
@@ -21,6 +22,7 @@ export default function Access() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const { refresh } = useAppContext();
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -39,6 +41,7 @@ export default function Access() {
     setLoading(true);
     try {
       await setSession(trimmedEmail, trimmedPassword);
+      await refresh();
       const [isAdmin, trial] = await Promise.all([isCurrentUserAdmin(), getCurrentTrial()]);
       if (isAdmin || trial) {
         navigate("/admin", { replace: true });
