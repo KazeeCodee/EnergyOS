@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import { supabase } from "../lib/supabase";
 import { fetchInformeInicio } from "../services/informeInicio";
 import { loadOnboardingState } from "../services/onboarding";
-import { isDashboardSupportedTipoAgente, type LinkedAgente, type MyProfile } from "../types/onboarding";
+import type { LinkedAgente, MyProfile } from "../types/onboarding";
 import { syncSessionFromSupabase } from "../utils/session";
 
 // ---------------------------------------------------------------------------
@@ -13,7 +13,6 @@ export type AppStatus =
   | "loading"      // cargando sesión y perfil
   | "unauthenticated" // sin sesión válida
   | "onboarding"   // sesión ok pero onboarding incompleto
-  | "unsupported_agent"
   | "ready";       // listo para mostrar la app
 
 export type AppContextValue = {
@@ -74,10 +73,6 @@ async function loadAppState(): Promise<LoadedAppState> {
   }
 
   const agente = agentes[0] ?? null;
-
-  if (!isDashboardSupportedTipoAgente(agente?.tipoAgente)) {
-    return { status: "unsupported_agent", profile, agente, ultimoMesDisponible: "" };
-  }
 
   // 3. Cargar último mes disponible (best-effort, no bloquea si falla)
   let ultimoMesDisponible = "";

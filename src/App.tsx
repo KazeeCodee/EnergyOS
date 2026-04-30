@@ -1,10 +1,8 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import { Building2, RotateCcw } from "lucide-react";
-import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
+import { Navigate, Route, Routes } from "react-router-dom";
 import { AppShell } from "./components/layout/AppShell";
 import { AdminShell } from "./components/layout/AdminShell";
 import { LoadingScreen } from "./components/ui/LoadingScreen";
-import { Logo } from "./components/ui/Logo";
 import { useAppContext } from "./context/AppContext";
 import AdminAnalytics from "./pages/admin/AdminAnalytics";
 import AdminModule1 from "./pages/admin/AdminModule1";
@@ -14,7 +12,6 @@ import AdminModule4 from "./pages/admin/AdminModule4";
 import SystemOverview from "./pages/admin/SystemOverview";
 import Access from "./pages/Access";
 import { isCurrentUserAdmin } from "./services/adminData";
-import { unlinkUserAgente } from "./services/onboarding";
 import { getCurrentTrial, getSession, syncSessionFromSupabase } from "./utils/session";
 
 // ---------------------------------------------------------------------------
@@ -30,74 +27,6 @@ const ModuloMercado      = lazy(() => import("./pages/app/ModuloMercado"));
 const AppAjustes         = lazy(() => import("./pages/app/AppAjustes"));
 
 const clientLoading = <LoadingScreen messages={["Cargando módulo..."]} />;
-
-function UnsupportedAgentRoute() {
-  const { agente, refresh } = useAppContext();
-  const navigate = useNavigate();
-  const [working, setWorking] = useState(false);
-  const [error, setError] = useState("");
-
-  const reselectAgent = async () => {
-    if (!agente) {
-      await refresh();
-      navigate("/app", { replace: true });
-      return;
-    }
-
-    setWorking(true);
-    setError("");
-    try {
-      await unlinkUserAgente(agente.nemo);
-      await refresh();
-      navigate("/app", { replace: true });
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "No pudimos liberar la empresa vinculada.");
-      setWorking(false);
-    }
-  };
-
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-10">
-      <section className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-sm md:p-8">
-        <div className="mb-6 flex items-center justify-between gap-4">
-          <Logo compact />
-          <span className="rounded-full bg-amber-50 px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-amber-700">
-            Revisar empresa
-          </span>
-        </div>
-
-        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#15caca]/10 text-[#0e8a8a]">
-          <Building2 size={22} />
-        </div>
-        <h1 className="mt-5 text-2xl font-bold text-[#163759]">Esta empresa todavia no tiene dashboard publicado</h1>
-        <p className="mt-3 text-sm leading-6 text-slate-600">
-          {agente?.descripcion ?? "La empresa vinculada"} figura como {agente?.tipoAgente ?? "un tipo de agente"}.
-          Por ahora EnergyOS publica datos de clientes GUMA y GUME. Para continuar, elegi una empresa con datos
-          disponibles en el buscador.
-        </p>
-
-        {agente ? (
-          <div className="mt-5 rounded-xl bg-slate-50 px-4 py-3">
-            <p className="text-sm font-semibold text-[#163759]">{agente.descripcion}</p>
-            <p className="mt-0.5 font-mono text-xs text-slate-500">{agente.nemo}</p>
-          </div>
-        ) : null}
-
-        {error ? <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}
-
-        <button
-          className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-[#163759] px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-[#0d2136] disabled:opacity-50"
-          disabled={working}
-          onClick={reselectAgent}
-          type="button"
-        >
-          <RotateCcw size={16} />
-          {working ? "Preparando buscador..." : "Elegir otra empresa"}
-        </button>
-      </section>
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // AppRoute — guard para /app/*
@@ -118,9 +47,6 @@ function AppRoute() {
         <AppOnboarding />
       </Suspense>
     );
-  }
-  if (status === "unsupported_agent") {
-    return <UnsupportedAgentRoute />;
   }
 
   // status === "ready"

@@ -175,6 +175,92 @@ gume_34 as (
   from public.raw_anexo_gume r
   where r.col_count = 34
 ),
+gudi_dexc as (
+  select
+    'GUDI'::text as tipo_agente,
+    nullif(substring(trim(r.col_001) from '^[A-Z0-9.&-]{8}[[:space:]]+([A-Z0-9.&-]{8})'), '') as nemo,
+    r.anio,
+    r.mes,
+    public.nemo_from(r.col_001) as distribuidor_nemo,
+    (
+      coalesce(public.parse_es_number(r.col_011), 0) +
+      coalesce(public.parse_es_number(r.col_012), 0) +
+      coalesce(public.parse_es_number(r.col_013), 0) +
+      coalesce(public.parse_es_number(r.col_014), 0) +
+      coalesce(public.parse_es_number(r.col_015), 0) +
+      coalesce(public.parse_es_number(r.col_016), 0) +
+      coalesce(public.parse_es_number(r.col_017), 0) +
+      coalesce(public.parse_es_number(r.col_018), 0) +
+      coalesce(public.parse_es_number(r.col_019), 0)
+    ) as demanda_real_total_mwh,
+    (
+      coalesce(public.parse_es_number(r.col_013), 0) +
+      coalesce(public.parse_es_number(r.col_016), 0) +
+      coalesce(public.parse_es_number(r.col_019), 0)
+    ) as demanda_real_pico_mwh,
+    (
+      coalesce(public.parse_es_number(r.col_011), 0) +
+      coalesce(public.parse_es_number(r.col_014), 0) +
+      coalesce(public.parse_es_number(r.col_017), 0)
+    ) as demanda_real_valle_mwh,
+    (
+      coalesce(public.parse_es_number(r.col_012), 0) +
+      coalesce(public.parse_es_number(r.col_015), 0) +
+      coalesce(public.parse_es_number(r.col_018), 0)
+    ) as demanda_real_resto_mwh,
+    (
+      coalesce(public.parse_es_number(r.col_002), 0) +
+      coalesce(public.parse_es_number(r.col_003), 0) +
+      coalesce(public.parse_es_number(r.col_004), 0) +
+      coalesce(public.parse_es_number(r.col_005), 0) +
+      coalesce(public.parse_es_number(r.col_006), 0) +
+      coalesce(public.parse_es_number(r.col_007), 0) +
+      coalesce(public.parse_es_number(r.col_008), 0) +
+      coalesce(public.parse_es_number(r.col_009), 0) +
+      coalesce(public.parse_es_number(r.col_010), 0)
+    ) as demanda_contratada_total_mwh,
+    greatest(
+      (
+        coalesce(public.parse_es_number(r.col_013), 0) +
+        coalesce(public.parse_es_number(r.col_016), 0) +
+        coalesce(public.parse_es_number(r.col_019), 0)
+      ) - (
+        coalesce(public.parse_es_number(r.col_004), 0) +
+        coalesce(public.parse_es_number(r.col_007), 0) +
+        coalesce(public.parse_es_number(r.col_010), 0)
+      ),
+      0
+    ) as compra_spot_pico_mwh,
+    greatest(
+      (
+        coalesce(public.parse_es_number(r.col_011), 0) +
+        coalesce(public.parse_es_number(r.col_014), 0) +
+        coalesce(public.parse_es_number(r.col_017), 0)
+      ) - (
+        coalesce(public.parse_es_number(r.col_002), 0) +
+        coalesce(public.parse_es_number(r.col_005), 0) +
+        coalesce(public.parse_es_number(r.col_008), 0)
+      ),
+      0
+    ) as compra_spot_valle_mwh,
+    greatest(
+      (
+        coalesce(public.parse_es_number(r.col_012), 0) +
+        coalesce(public.parse_es_number(r.col_015), 0) +
+        coalesce(public.parse_es_number(r.col_018), 0)
+      ) - (
+        coalesce(public.parse_es_number(r.col_003), 0) +
+        coalesce(public.parse_es_number(r.col_006), 0) +
+        coalesce(public.parse_es_number(r.col_009), 0)
+      ),
+      0
+    ) as compra_spot_resto_mwh,
+    0::numeric as compra_spot_pesos,
+    'gudi_dexc_19'::text as source_layout
+  from public.raw_dexc r
+  where r.col_count = 19
+    and nullif(substring(trim(r.col_001) from '^[A-Z0-9.&-]{8}[[:space:]]+([A-Z0-9.&-]{8})'), '') is not null
+),
 normalized as (
   select * from guma_new
   union all select * from guma_legacy
@@ -184,13 +270,14 @@ normalized as (
   union all select * from gume_32
   union all select * from gume_33
   union all select * from gume_34
+  union all select * from gudi_dexc
 ),
 filtered as (
   select *
   from normalized
   where nemo is not null
     and nemo !~ '^\['
-    and upper(nemo) not in ('AGENTE', 'GUMA', 'GUME', 'TOTAL', 'TOTALES')
+    and upper(nemo) not in ('AGENTE', 'GUMA', 'GUME', 'GUDI', 'TOTAL', 'TOTALES')
     and demanda_real_total_mwh is not null
 )
 select
@@ -249,6 +336,7 @@ select
     when demanda_real_mwh is null or demanda_real_mwh <= 0 then 'sin_demanda'
     when compra_spot_mwh > demanda_real_mwh * 1.05 then 'spot_mayor_demanda'
     when tipo_agente = 'GUME' and demanda_contratada_mwh = 0 then 'gume_spot_only'
+    when tipo_agente = 'GUDI' and demanda_contratada_mwh = 0 then 'gudi_base_cero'
     else 'ok'
   end as calidad_dato
 from public.vw_consumo_gu_mensual

@@ -292,13 +292,7 @@ Deno.serve(async (req) => {
       universo: {
         guma: universoBucket(byType.get("GUMA")),
         gume: universoBucket(byType.get("GUME")),
-        gudi: {
-          disponible: false,
-          demandaTotalGwh: null,
-          agentesCount: null,
-          mix: { materEstimadoPct: null, spotPct: null, plusPct: null },
-          plusDisponible: false,
-        },
+        gudi: universoBucket(byType.get("GUDI")),
       },
       cliente: {
         disponible: Boolean(cliente),
