@@ -1,15 +1,19 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo } from "react";
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function formatMesLabel(mesStr: string): string {
-  if (!mesStr) return "";
-  const [yearStr, monthStr] = mesStr.split("-");
-  const date = new Date(parseInt(yearStr, 10), parseInt(monthStr, 10) - 1, 1);
-  return date.toLocaleDateString("es-AR", { month: "short", year: "numeric" }).replace(".", "");
-}
+const MONTHS = [
+  { value: 1, label: "Enero" },
+  { value: 2, label: "Febrero" },
+  { value: 3, label: "Marzo" },
+  { value: 4, label: "Abril" },
+  { value: 5, label: "Mayo" },
+  { value: 6, label: "Junio" },
+  { value: 7, label: "Julio" },
+  { value: 8, label: "Agosto" },
+  { value: 9, label: "Septiembre" },
+  { value: 10, label: "Octubre" },
+  { value: 11, label: "Noviembre" },
+  { value: 12, label: "Diciembre" },
+];
 
 function buildMesesAtras(ultimoMes: string, cantidad: number): string[] {
   if (!ultimoMes) return [];
@@ -17,6 +21,7 @@ function buildMesesAtras(ultimoMes: string, cantidad: number): string[] {
   let year = parseInt(yearStr, 10);
   let month = parseInt(monthStr, 10);
   const meses: string[] = [];
+
   for (let i = 0; i < cantidad; i++) {
     meses.push(`${year}-${String(month).padStart(2, "0")}`);
     month -= 1;
@@ -25,31 +30,48 @@ function buildMesesAtras(ultimoMes: string, cantidad: number): string[] {
       year -= 1;
     }
   }
+
   return meses;
 }
 
-// ---------------------------------------------------------------------------
-// RangeSelector
-// ---------------------------------------------------------------------------
+function monthToIndex(mesStr: string): number {
+  const [yearStr, monthStr] = mesStr.split("-");
+  return parseInt(yearStr, 10) * 12 + parseInt(monthStr, 10) - 1;
+}
+
+function indexToMonth(index: number): string {
+  const year = Math.floor(index / 12);
+  const month = (index % 12) + 1;
+  return `${year}-${String(month).padStart(2, "0")}`;
+}
+
+function monthsInclusive(desde: string, hasta: string): number {
+  return Math.max(1, monthToIndex(hasta) - monthToIndex(desde) + 1);
+}
+
+function subtractMonths(mesStr: string, cantidad: number): string {
+  return indexToMonth(monthToIndex(mesStr) - cantidad);
+}
+
+function parseMonthKey(mesStr: string): { year: number; month: number } {
+  const [yearStr, monthStr] = mesStr.split("-");
+  return { year: parseInt(yearStr, 10), month: parseInt(monthStr, 10) };
+}
+
+function buildMonthKey(year: number, month: number): string {
+  return `${year}-${String(month).padStart(2, "0")}`;
+}
 
 export type RangeSelectorProps = {
-  /** Cantidad de meses seleccionada. */
   meses: number;
-  /** Callback al cambiar la cantidad (ya viene debounceado). */
   onMesesChange: (n: number) => void;
-  /** Mes ancla "hasta" (YYYY-MM). Por defecto: último disponible. */
   anchorMes?: string;
-  /** Callback al cambiar el ancla. Si se omite, no se muestra el selector "hasta". */
   onAnchorChange?: (mes: string) => void;
-  /** Último mes con datos (YYYY-MM). Define el techo del selector "hasta". */
+  allowStartSelect?: boolean;
   ultimoMesDisponible: string;
-  /** Tope de meses disponibles. Default: 60. */
   maxMeses?: number;
-  /** Lista personalizada de presets. Default: [3, 6, 12, 24, 36]. */
   presets?: number[];
-  /** Etiqueta opcional para el bloque. */
   label?: string;
-  /** Milisegundos de debounce para slider / input numérico. Default: 250. */
   debounceMs?: number;
 };
 
@@ -58,139 +80,135 @@ export function RangeSelector({
   onMesesChange,
   anchorMes,
   onAnchorChange,
+  allowStartSelect = false,
   ultimoMesDisponible,
   maxMeses = 60,
-  presets = [3, 6, 12, 24, 36],
-  label = "Período",
-  debounceMs = 250,
+  label = "Periodo",
 }: RangeSelectorProps) {
   const cap = Math.max(1, maxMeses);
-  const valorComprometido = Math.min(Math.max(1, meses), cap);
-
-  // Estado visual local para que el slider responda inmediatamente.
-  const [draft, setDraft] = useState(valorComprometido);
-
-  // Sync cuando cambia el valor desde afuera (ej: cap nuevo).
-  useEffect(() => {
-    setDraft(valorComprometido);
-  }, [valorComprometido]);
-
-  // Debounce del commit hacia el padre.
-  const timerRef = useRef<number | null>(null);
-  const commitDebounced = (n: number) => {
-    setDraft(n);
-    if (timerRef.current) window.clearTimeout(timerRef.current);
-    timerRef.current = window.setTimeout(() => {
-      onMesesChange(Math.min(Math.max(1, n), cap));
-    }, debounceMs);
-  };
-  const commitNow = (n: number) => {
-    setDraft(n);
-    if (timerRef.current) window.clearTimeout(timerRef.current);
-    onMesesChange(Math.min(Math.max(1, n), cap));
-  };
-  useEffect(() => () => { if (timerRef.current) window.clearTimeout(timerRef.current); }, []);
-
-  const opcionesAncla = useMemo(
+  const opcionesDesc = useMemo(
     () => buildMesesAtras(ultimoMesDisponible, cap),
     [ultimoMesDisponible, cap],
   );
+  const opcionesAsc = useMemo(() => [...opcionesDesc].reverse(), [opcionesDesc]);
+  const activeAnchor = anchorMes ?? ultimoMesDisponible;
+  const startMes = useMemo(() => {
+    if (!activeAnchor) return opcionesAsc[0] ?? "";
+    const candidate = subtractMonths(activeAnchor, Math.max(1, meses) - 1);
+    const min = opcionesAsc[0] ?? candidate;
+    return candidate < min ? min : candidate;
+  }, [activeAnchor, meses, opcionesAsc]);
 
-  const presetsValidos = presets.filter((p) => p <= cap);
-  const incluyeTodo = cap > 1;
-  const showAncla = Boolean(onAnchorChange) && opcionesAncla.length > 0;
+  const years = useMemo(
+    () => [...new Set(opcionesAsc.map((mes) => parseMonthKey(mes).year))],
+    [opcionesAsc],
+  );
+
+  const monthsForYear = (year: number) =>
+    MONTHS.filter((month) => opcionesAsc.includes(buildMonthKey(year, month.value)));
+
+  const commitRange = (desde: string, hasta: string) => {
+    if (!desde || !hasta) return;
+    const normalizedDesde = desde > hasta ? hasta : desde;
+    onAnchorChange?.(hasta);
+    onMesesChange(Math.min(monthsInclusive(normalizedDesde, hasta), cap));
+  };
+
+  const changeStart = (nextStart: string) => {
+    if (nextStart > activeAnchor) {
+      commitRange(nextStart, nextStart);
+      return;
+    }
+    commitRange(nextStart, activeAnchor);
+  };
+
+  const changeEnd = (nextEnd: string) => {
+    if (nextEnd < startMes) {
+      commitRange(nextEnd, nextEnd);
+      return;
+    }
+    commitRange(startMes, nextEnd);
+  };
+
+  if (!allowStartSelect || !onAnchorChange || opcionesAsc.length === 0) {
+    return (
+      <div className="mb-5 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+            {label}
+          </span>
+          <span className="text-sm font-semibold text-slate-700">
+            Ultimos {Math.min(Math.max(1, meses), cap)} meses
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  const start = parseMonthKey(startMes || opcionesAsc[0]);
+  const end = parseMonthKey(activeAnchor || opcionesAsc[opcionesAsc.length - 1]);
 
   return (
     <div className="mb-5 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        {/* Presets + label */}
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="mr-1 text-[11px] font-bold uppercase tracking-wider text-slate-400">
-            {label}
-          </span>
-          {presetsValidos.map((p) => {
-            const active = draft === p;
-            return (
-              <button
-                key={p}
-                type="button"
-                onClick={() => commitNow(p)}
-                className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors ${
-                  active
-                    ? "bg-[#163759] text-white"
-                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                }`}
-              >
-                {p}M
-              </button>
-            );
-          })}
-          {incluyeTodo && (
-            <button
-              type="button"
-              onClick={() => commitNow(cap)}
-              className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors ${
-                draft === cap
-                  ? "bg-[#163759] text-white"
-                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-              }`}
-            >
-              Todo ({cap}M)
-            </button>
-          )}
-        </div>
+      <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+          {label}
+        </span>
 
-        {/* Ancla "hasta" */}
-        {showAncla && (
-          <div className="flex items-center gap-2">
-            <label
-              htmlFor="range-anchor"
-              className="text-[11px] font-bold uppercase tracking-wider text-slate-400"
-            >
-              Hasta
-            </label>
+        <div className="grid gap-3 md:grid-cols-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="w-12 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+              Desde
+            </span>
             <select
-              id="range-anchor"
-              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 shadow-sm focus:border-[#15caca] focus:outline-none focus:ring-2 focus:ring-[#15caca]/20"
-              value={anchorMes ?? ultimoMesDisponible}
-              onChange={(e) => onAnchorChange?.(e.target.value)}
+              className="h-10 min-w-32 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm focus:border-[#15caca] focus:outline-none focus:ring-2 focus:ring-[#15caca]/20"
+              value={start.month}
+              onChange={(event) => changeStart(buildMonthKey(start.year, Number(event.target.value)))}
             >
-              {opcionesAncla.map((m) => (
-                <option key={m} value={m}>
-                  {formatMesLabel(m)}
-                </option>
+              {monthsForYear(start.year).map((month) => (
+                <option key={month.value} value={month.value}>{month.label}</option>
               ))}
             </select>
+            <select
+              className="h-10 min-w-24 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm focus:border-[#15caca] focus:outline-none focus:ring-2 focus:ring-[#15caca]/20"
+              value={start.year}
+              onChange={(event) => {
+                const year = Number(event.target.value);
+                const months = monthsForYear(year);
+                const month = months.some((item) => item.value === start.month) ? start.month : months[0]?.value;
+                if (month) changeStart(buildMonthKey(year, month));
+              }}
+            >
+              {years.map((year) => <option key={year} value={year}>{year}</option>)}
+            </select>
           </div>
-        )}
-      </div>
 
-      {/* Slider personalizado */}
-      <div className="mt-3 flex items-center gap-3">
-        <input
-          aria-label="Cantidad de meses"
-          className="flex-1 accent-[#15caca]"
-          max={cap}
-          min={1}
-          onChange={(e) => commitDebounced(parseInt(e.target.value, 10))}
-          step={1}
-          type="range"
-          value={draft}
-        />
-        <div className="flex items-center gap-1.5 text-xs">
-          <input
-            aria-label="Cantidad exacta de meses"
-            className="w-14 rounded-md border border-slate-200 bg-white px-2 py-1 text-center text-xs font-semibold text-slate-700 focus:border-[#15caca] focus:outline-none focus:ring-2 focus:ring-[#15caca]/20"
-            max={cap}
-            min={1}
-            onChange={(e) => {
-              const n = parseInt(e.target.value, 10);
-              if (!isNaN(n)) commitDebounced(n);
-            }}
-            type="number"
-            value={draft}
-          />
-          <span className="text-slate-500">de {cap} meses</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="w-12 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+              Hasta
+            </span>
+            <select
+              className="h-10 min-w-32 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm focus:border-[#15caca] focus:outline-none focus:ring-2 focus:ring-[#15caca]/20"
+              value={end.month}
+              onChange={(event) => changeEnd(buildMonthKey(end.year, Number(event.target.value)))}
+            >
+              {monthsForYear(end.year).map((month) => (
+                <option key={month.value} value={month.value}>{month.label}</option>
+              ))}
+            </select>
+            <select
+              className="h-10 min-w-24 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm focus:border-[#15caca] focus:outline-none focus:ring-2 focus:ring-[#15caca]/20"
+              value={end.year}
+              onChange={(event) => {
+                const year = Number(event.target.value);
+                const months = monthsForYear(year);
+                const month = months.some((item) => item.value === end.month) ? end.month : months.at(-1)?.value;
+                if (month) changeEnd(buildMonthKey(year, month));
+              }}
+            >
+              {years.map((year) => <option key={year} value={year}>{year}</option>)}
+            </select>
+          </div>
         </div>
       </div>
     </div>

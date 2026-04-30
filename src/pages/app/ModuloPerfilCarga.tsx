@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -22,7 +22,9 @@ import { LoadingScreen } from "../../components/ui/LoadingScreen";
 import { useAppContext } from "../../context/AppContext";
 import { useAsyncData } from "../../hooks/useAsyncData";
 import { fetchFactorCargaMensual } from "../../services/factorCarga";
-import type { FactorCargaResponse } from "../../types/factorCarga";
+import type { FactorCargaPoint, FactorCargaResponse, FactorCargaResumen } from "../../types/factorCarga";
+
+const MAX_MESES = 63;
 
 function fmt(n: number | null | undefined, d = 1) { return n == null ? "—" : n.toFixed(d).replace(".", ","); }
 function fmtPct(n: number | null | undefined) { return n == null ? "—" : `${fmt(n * 100)}%`; }
@@ -32,11 +34,36 @@ function mesLabel(p: string) {
 }
 
 const EMPTY: FactorCargaResponse = {
-  nemo: "", meses: 12, autorizados: [],
+  nemo: "", meses: MAX_MESES, autorizados: [],
   resumen: { meses: 0, mesesConPvr: 0, ultimoMes: null, factorCargaPct: null, factorCargaMetodo: "no_disponible_sin_potencia_maxima", pctPicoPromedio: null, pctVallePromedio: null, pctRestoPromedio: null, ratioPicoVallePromedio: null, pctPicoPercentilPromedio: null, estacionalidadYoyUltimoMes: null, calidadDatoUltimoMes: null },
   serie: [], benchmark: [],
   notas: { factorCarga: "" },
 };
+
+function avg(values: Array<number | null>): number | null {
+  const clean = values.filter((value): value is number => value !== null && Number.isFinite(value));
+  if (clean.length === 0) return null;
+  return clean.reduce((sum, value) => sum + value, 0) / clean.length;
+}
+
+function recomputeResumen(serie: FactorCargaPoint[]): FactorCargaResumen {
+  const valid = serie.filter((row) => row.calidadDato === "ok");
+  const ultimoMes = serie.at(-1) ?? null;
+  return {
+    meses: serie.length,
+    mesesConPvr: valid.length,
+    ultimoMes,
+    factorCargaPct: null,
+    factorCargaMetodo: "no_disponible_sin_potencia_maxima",
+    pctPicoPromedio: avg(valid.map((row) => row.pctPico)),
+    pctVallePromedio: avg(valid.map((row) => row.pctValle)),
+    pctRestoPromedio: avg(valid.map((row) => row.pctResto)),
+    ratioPicoVallePromedio: avg(valid.map((row) => row.ratioPicoValle)),
+    pctPicoPercentilPromedio: avg(valid.map((row) => row.pctPicoPercentil)),
+    estacionalidadYoyUltimoMes: ultimoMes?.estacionalidadYoy ?? null,
+    calidadDatoUltimoMes: ultimoMes?.calidadDato ?? null,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Mini gauge para el percentil
@@ -66,15 +93,25 @@ function PercentilBar({ percentil }: { percentil: number }) {
 export default function ModuloPerfilCarga() {
   const { agente, ultimoMesDisponible } = useAppContext();
   const [meses, setMeses] = useState(12);
+  const [anchorMes, setAnchorMes] = useState("");
 
-  const loader = useCallback(() => fetchFactorCargaMensual({ nemo: agente?.nemo, meses }), [agente?.nemo, meses]);
+  const loader = useCallback(() => fetchFactorCargaMensual({ nemo: agente?.nemo, meses: MAX_MESES }), [agente?.nemo]);
   const { data, loading, error } = useAsyncData<FactorCargaResponse>(loader, EMPTY);
+
+  const serieCompleta = data.serie;
+  const ultimoMesEnSerie = serieCompleta.at(-1)?.periodo ?? ultimoMesDisponible;
+  const anchorEfectivo = anchorMes || ultimoMesEnSerie;
+  const view = useMemo(() => {
+    const serie = serieCompleta.filter((p) => p.periodo <= anchorEfectivo).slice(-meses);
+    const benchmark = data.benchmark.filter((p) => p.periodo <= anchorEfectivo).slice(-meses);
+    return { serie, benchmark, resumen: recomputeResumen(serie) };
+  }, [serieCompleta, data.benchmark, meses, anchorEfectivo]);
 
   if (loading) return <LoadingScreen messages={["Cargando perfil de carga..."]} />;
 
-  const r = data.resumen;
-  const sinDatos = data.serie.length === 0;
-  const serieAsc = data.serie.slice().reverse();
+  const r = view.resumen;
+  const sinDatos = view.serie.length === 0;
+  const serieAsc = view.serie;
 
   const pvrData = serieAsc.map((p) => ({
     mes: mesLabel(p.periodo),
@@ -88,8 +125,8 @@ export default function ModuloPerfilCarga() {
     ratio: p.ratioPicoValle ?? 0,
   })).filter((d) => d.ratio > 0);
 
-  const ultimoMes = data.serie[data.serie.length - 1];
-  const benchUltimoMes = data.benchmark[data.benchmark.length - 1];
+  const ultimoMes = view.serie[view.serie.length - 1];
+  const benchUltimoMes = view.benchmark[view.benchmark.length - 1];
 
   return (
     <div>
@@ -102,8 +139,12 @@ export default function ModuloPerfilCarga() {
       <RangeSelector
         meses={meses}
         onMesesChange={setMeses}
-        ultimoMesDisponible={ultimoMesDisponible}
-        maxMeses={60}
+        anchorMes={anchorEfectivo}
+        onAnchorChange={(mes) => setAnchorMes(mes === ultimoMesEnSerie ? "" : mes)}
+        allowStartSelect
+        ultimoMesDisponible={ultimoMesEnSerie}
+        maxMeses={Math.max(1, serieCompleta.length || MAX_MESES)}
+        debounceMs={0}
       />
 
       {error && <AlertaBanner type="warning" message={error} />}

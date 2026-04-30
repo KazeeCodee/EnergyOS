@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -26,7 +26,9 @@ import { LoadingScreen } from "../../components/ui/LoadingScreen";
 import { useAppContext } from "../../context/AppContext";
 import { useAsyncData } from "../../hooks/useAsyncData";
 import { fetchCompliance27191 } from "../../services/compliance27191";
-import type { Compliance27191Response } from "../../types/compliance27191";
+import type { Compliance27191Point, Compliance27191Response, Compliance27191Resumen } from "../../types/compliance27191";
+
+const MAX_MESES = 63;
 
 function fmt(n: number | null | undefined, d = 1) { return n == null ? "—" : n.toFixed(d).replace(".", ","); }
 function fmtPct(n: number | null | undefined) { return n == null ? "—" : `${fmt(n * 100)}%`; }
@@ -40,24 +42,60 @@ function mesLabel(p: string) {
 }
 
 const EMPTY: Compliance27191Response = {
-  nemo: "", meses: 12, autorizados: [],
+  nemo: "", meses: MAX_MESES, autorizados: [],
   resumen: { meses: 0, ultimoMes: null, pctRenovablePromedio: null, renovableContratadoMwh: 0, brechaMwh: 0, multaEstimadaPesos: 0, anioEnCurso: null, brechaAnioEnCursoMwh: 0, multaAnioEnCursoPesos: 0, cumpleYtd: false, brechaYtdMwh: null },
   serie: [],
   notas: { multa: "", obligacion: "" },
 };
 
+function recomputeResumen(serie: Compliance27191Point[]): Compliance27191Resumen {
+  const ultimoMes = serie.at(-1) ?? null;
+  const latestYear = ultimoMes?.anio ?? null;
+  const yearRows = latestYear === null ? [] : serie.filter((row) => row.anio === latestYear);
+  const demanda = serie.reduce((sum, row) => sum + (row.demandaRealMwh ?? 0), 0);
+  const renovable = serie.reduce((sum, row) => sum + (row.renovableContratadoMwh ?? 0), 0);
+  const brecha = serie.reduce((sum, row) => sum + (row.brechaMwh ?? 0), 0);
+  const multa = serie.reduce((sum, row) => sum + (row.multaEstimadaPesos ?? 0), 0);
+  const brechaAnio = yearRows.reduce((sum, row) => sum + (row.brechaMwh ?? 0), 0);
+  const multaAnio = yearRows.reduce((sum, row) => sum + (row.multaEstimadaPesos ?? 0), 0);
+
+  return {
+    meses: serie.length,
+    ultimoMes,
+    pctRenovablePromedio: demanda > 0 ? renovable / demanda : null,
+    renovableContratadoMwh: renovable,
+    brechaMwh: brecha,
+    multaEstimadaPesos: multa,
+    anioEnCurso: latestYear,
+    brechaAnioEnCursoMwh: brechaAnio,
+    multaAnioEnCursoPesos: multaAnio,
+    cumpleYtd: ultimoMes?.cumpleYtd ?? false,
+    brechaYtdMwh: ultimoMes?.brechaYtdMwh ?? null,
+  };
+}
+
 export default function ModuloCumplimiento() {
   const { agente, ultimoMesDisponible } = useAppContext();
   const [meses, setMeses] = useState(12);
+  const [anchorMes, setAnchorMes] = useState("");
 
-  const loader = useCallback(() => fetchCompliance27191({ nemo: agente?.nemo, meses }), [agente?.nemo, meses]);
+  const loader = useCallback(() => fetchCompliance27191({ nemo: agente?.nemo, meses: MAX_MESES }), [agente?.nemo]);
   const { data, loading, error } = useAsyncData<Compliance27191Response>(loader, EMPTY);
+
+  const serieCompleta = data.serie;
+  const ultimoMesEnSerie = serieCompleta.at(-1)?.periodo ?? ultimoMesDisponible;
+  const anchorEfectivo = anchorMes || ultimoMesEnSerie;
+  const view = useMemo(() => {
+    const filtrada = serieCompleta.filter((p) => p.periodo <= anchorEfectivo);
+    const ventana = filtrada.slice(-meses);
+    return { ventana, resumen: recomputeResumen(ventana) };
+  }, [serieCompleta, meses, anchorEfectivo]);
 
   if (loading) return <LoadingScreen messages={["Cargando cumplimiento 27.191..."]} />;
 
-  const r = data.resumen;
-  const sinDatos = data.serie.length === 0;
-  const serieAsc = data.serie.slice().reverse();
+  const r = view.resumen;
+  const sinDatos = view.ventana.length === 0;
+  const serieAsc = view.ventana;
 
   const realVsObligData = serieAsc.map((p) => ({
     mes: mesLabel(p.periodo),
@@ -91,8 +129,12 @@ export default function ModuloCumplimiento() {
       <RangeSelector
         meses={meses}
         onMesesChange={setMeses}
-        ultimoMesDisponible={ultimoMesDisponible}
-        maxMeses={60}
+        anchorMes={anchorEfectivo}
+        onAnchorChange={(mes) => setAnchorMes(mes === ultimoMesEnSerie ? "" : mes)}
+        allowStartSelect
+        ultimoMesDisponible={ultimoMesEnSerie}
+        maxMeses={Math.max(1, serieCompleta.length || MAX_MESES)}
+        debounceMs={0}
       />
 
       {error && <AlertaBanner type="warning" message={error} />}

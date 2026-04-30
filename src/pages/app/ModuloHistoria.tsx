@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   Bar,
   Cell,
@@ -23,7 +23,14 @@ import { LoadingScreen } from "../../components/ui/LoadingScreen";
 import { useAppContext } from "../../context/AppContext";
 import { useAsyncData } from "../../hooks/useAsyncData";
 import { fetchHistoriaEnergetica } from "../../services/historiaEnergetica";
-import type { HistoriaEnergeticaResponse } from "../../types/historiaEnergetica";
+import type {
+  HistoriaEnergeticaHeatmapPoint,
+  HistoriaEnergeticaPoint,
+  HistoriaEnergeticaResponse,
+  HistoriaEnergeticaResumen,
+} from "../../types/historiaEnergetica";
+
+const MAX_MESES = 63;
 
 function fmt(n: number | null | undefined, d = 1) { return n == null ? "—" : n.toFixed(d).replace(".", ","); }
 function fmtMwh(n: number | null | undefined) { return n == null ? "—" : `${n.toLocaleString("es-AR")} MWh`; }
@@ -35,8 +42,75 @@ function mesLabel(anio: number, mes: number) {
 const MES_LABELS = ["", "Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 
 const EMPTY: HistoriaEnergeticaResponse = {
-  nemo: "", meses: 60, autorizados: [], serieMensual: [], heatmap: [], resumen: null,
+  nemo: "", meses: MAX_MESES, autorizados: [], serieMensual: [], heatmap: [], resumen: null,
 };
+
+function recomputeHeatmap(serie: HistoriaEnergeticaPoint[]): HistoriaEnergeticaHeatmapPoint[] {
+  const values = serie.map((row) => row.demandaMwh ?? 0);
+  const min = values.length > 0 ? Math.min(...values) : 0;
+  const max = values.length > 0 ? Math.max(...values) : 0;
+  const range = max - min;
+  return serie.map((row) => {
+    const demanda = row.demandaMwh ?? 0;
+    return {
+      anio: row.anio,
+      mes: row.mes,
+      periodo: row.periodo,
+      demandaMwh: row.demandaMwh,
+      intensidadNormalizada: range > 0 ? (demanda - min) / range : null,
+    };
+  });
+}
+
+function recomputeResumen(serie: HistoriaEnergeticaPoint[]): HistoriaEnergeticaResumen | null {
+  if (serie.length === 0) return null;
+  const first = serie[0];
+  const last = serie[serie.length - 1];
+  const demandas = serie.filter((row) => row.demandaMwh != null);
+  const total = demandas.reduce((sum, row) => sum + (row.demandaMwh ?? 0), 0);
+  const ultimos12 = serie.slice(-12);
+  const previos12 = serie.slice(-24, -12);
+  const demandaUltimos12 = ultimos12.reduce((sum, row) => sum + (row.demandaMwh ?? 0), 0);
+  const demandaPrevios12 = previos12.reduce((sum, row) => sum + (row.demandaMwh ?? 0), 0);
+  const mayor = demandas.reduce<HistoriaEnergeticaPoint | null>(
+    (current, row) => current === null || (row.demandaMwh ?? 0) > (current.demandaMwh ?? 0) ? row : current,
+    null,
+  );
+  const menor = demandas.reduce<HistoriaEnergeticaPoint | null>(
+    (current, row) => current === null || (row.demandaMwh ?? 0) < (current.demandaMwh ?? 0) ? row : current,
+    null,
+  );
+
+  return {
+    tipoAgente: last.tipoAgente,
+    nemo: last.nemo,
+    mesesDisponibles: serie.length,
+    primerPeriodo: first.periodo,
+    ultimoPeriodo: last.periodo,
+    demandaTotalMwh: total,
+    demandaPromedioMensualMwh: demandas.length > 0 ? total / demandas.length : null,
+    demandaUltimos12mMwh: demandaUltimos12,
+    demandaPromedioUltimos12mMwh: ultimos12.length > 0 ? demandaUltimos12 / ultimos12.length : null,
+    demanda12mPreviosMwh: previos12.length > 0 ? demandaPrevios12 : null,
+    variacionUltimos12mPct: demandaPrevios12 > 0 ? (demandaUltimos12 - demandaPrevios12) / demandaPrevios12 : null,
+    primerMesDemandaMwh: first.demandaMwh,
+    ultimoMesDemandaMwh: last.demandaMwh,
+    mismoMesAnioAnteriorMwh: last.demandaYoyBaseMwh,
+    variacionYoyUltimoMesPct: last.yoyPct,
+    mesMayorConsumo: {
+      periodo: mayor?.periodo ?? "",
+      anio: mayor?.anio ?? 0,
+      mes: mayor?.mes ?? 0,
+      demandaMwh: mayor?.demandaMwh ?? null,
+    },
+    mesMenorConsumo: {
+      periodo: menor?.periodo ?? "",
+      anio: menor?.anio ?? 0,
+      mes: menor?.mes ?? 0,
+      demandaMwh: menor?.demandaMwh ?? null,
+    },
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Heatmap
@@ -116,16 +190,25 @@ function Heatmap({ data }: { data: HistoriaEnergeticaResponse["heatmap"] }) {
 export default function ModuloHistoria() {
   const { agente, ultimoMesDisponible } = useAppContext();
   const [meses, setMeses] = useState(60);
+  const [anchorMes, setAnchorMes] = useState("");
 
-  const loader = useCallback(() => fetchHistoriaEnergetica({ nemo: agente?.nemo, meses }), [agente?.nemo, meses]);
+  const loader = useCallback(() => fetchHistoriaEnergetica({ nemo: agente?.nemo, meses: MAX_MESES }), [agente?.nemo]);
   const { data, loading, error } = useAsyncData<HistoriaEnergeticaResponse>(loader, EMPTY);
+
+  const serieCompleta = data.serieMensual;
+  const ultimoMesEnSerie = serieCompleta.at(-1)?.periodo ?? ultimoMesDisponible;
+  const anchorEfectivo = anchorMes || ultimoMesEnSerie;
+  const view = useMemo(() => {
+    const serie = serieCompleta.filter((p) => p.periodo <= anchorEfectivo).slice(-meses);
+    return { serie, heatmap: recomputeHeatmap(serie), resumen: recomputeResumen(serie) };
+  }, [serieCompleta, meses, anchorEfectivo]);
 
   if (loading) return <LoadingScreen messages={["Cargando historia energética..."]} />;
 
-  const r = data.resumen;
-  const sinDatos = data.serieMensual.length === 0;
+  const r = view.resumen;
+  const sinDatos = view.serie.length === 0;
 
-  const barData = data.serieMensual.map((p) => ({
+  const barData = view.serie.map((p) => ({
     mes: mesLabel(p.anio, p.mes),
     mwh: p.demandaMwh ?? 0,
     yoy: p.yoyPct != null ? p.yoyPct * 100 : null,
@@ -145,10 +228,14 @@ export default function ModuloHistoria() {
       <RangeSelector
         meses={meses}
         onMesesChange={setMeses}
-        ultimoMesDisponible={ultimoMesDisponible}
-        maxMeses={120}
-        presets={[12, 24, 36, 60, 120]}
+        anchorMes={anchorEfectivo}
+        onAnchorChange={(mes) => setAnchorMes(mes === ultimoMesEnSerie ? "" : mes)}
+        allowStartSelect
+        ultimoMesDisponible={ultimoMesEnSerie}
+        maxMeses={Math.max(1, serieCompleta.length || MAX_MESES)}
+        presets={[12, 24, 36, 60, 63]}
         label="Histórico"
+        debounceMs={0}
       />
 
       {error && <AlertaBanner type="warning" message={error} />}
@@ -191,7 +278,7 @@ export default function ModuloHistoria() {
           )}
 
           <div className="mb-5">
-            <Heatmap data={data.heatmap} />
+            <Heatmap data={view.heatmap} />
           </div>
 
           {/* Barras + YoY combinado */}

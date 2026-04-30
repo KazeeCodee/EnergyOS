@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -24,7 +24,10 @@ import { LoadingScreen } from "../../components/ui/LoadingScreen";
 import { useAppContext } from "../../context/AppContext";
 import { useAsyncData } from "../../hooks/useAsyncData";
 import { fetchExposicionSpotMensual } from "../../services/exposicionSpot";
-import type { ExposicionSpotResponse } from "../../types/exposicionSpot";
+import type { ExposicionSpotPoint, ExposicionSpotResponse, ExposicionSpotResumen } from "../../types/exposicionSpot";
+
+// Tope que aceptan las edge functions (parseMeses cap = 63).
+const MAX_MESES = 63;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -42,10 +45,35 @@ function mesLabel(p: string) {
 }
 
 const EMPTY: ExposicionSpotResponse = {
-  nemo: "", meses: 12, autorizados: [],
+  nemo: "", meses: MAX_MESES, autorizados: [],
   resumen: { meses: 0, demandaRealMwh: 0, compraSpotMwh: 0, demandaContratadaMwh: 0, pctSpot: null, pctMat: null, spotPesos: 0, costoSpotPromedioPesosMwh: null, subContratoMwh: 0, sobreContratoMwh: 0 },
   serie: [],
 };
+
+/**
+ * Replica buildResumen() del edge function gu-exposicion para calcular el
+ * resumen del rango filtrado client-side, sin tocar backend ni tablas.
+ */
+function recomputeResumen(serie: ExposicionSpotPoint[]): ExposicionSpotResumen {
+  const demanda = serie.reduce((s, r) => s + (r.demandaRealMwh ?? 0), 0);
+  const spot = serie.reduce((s, r) => s + (r.compraSpotMwh ?? 0), 0);
+  const mat = serie.reduce((s, r) => s + (r.demandaContratadaMwh ?? 0), 0);
+  const spotPesos = serie.reduce((s, r) => s + (r.spotPesos ?? 0), 0);
+  const subContrato = serie.reduce((s, r) => s + (r.subContratoMwh ?? 0), 0);
+  const sobreContrato = serie.reduce((s, r) => s + (r.sobreContratoMwh ?? 0), 0);
+  return {
+    meses: serie.length,
+    demandaRealMwh: demanda,
+    compraSpotMwh: spot,
+    demandaContratadaMwh: mat,
+    pctSpot: demanda > 0 ? spot / demanda : null,
+    pctMat: demanda > 0 ? mat / demanda : null,
+    spotPesos,
+    costoSpotPromedioPesosMwh: spot > 0 ? spotPesos / spot : null,
+    subContratoMwh: subContrato,
+    sobreContratoMwh: sobreContrato,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Módulo
@@ -53,19 +81,33 @@ const EMPTY: ExposicionSpotResponse = {
 export default function ModuloExposicionSpot() {
   const { agente, ultimoMesDisponible } = useAppContext();
   const [meses, setMeses] = useState(12);
+  const [anchorMes, setAnchorMes] = useState<string>("");
 
+  // Fetch único con el máximo permitido. El filtrado fino se hace client-side.
   const loader = useCallback(
-    () => fetchExposicionSpotMensual({ nemo: agente?.nemo, meses }),
-    [agente?.nemo, meses],
+    () => fetchExposicionSpotMensual({ nemo: agente?.nemo, meses: MAX_MESES }),
+    [agente?.nemo],
   );
   const { data, loading, error } = useAsyncData<ExposicionSpotResponse>(loader, EMPTY);
 
+  // Serie completa del backend ya viene ascendente (oldest → newest).
+  const serieCompleta = data.serie;
+
+  // Mes ancla efectivo: el seleccionado o el último disponible en la serie.
+  const ultimoMesEnSerie = serieCompleta.at(-1)?.periodo ?? ultimoMesDisponible;
+  const anchorEfectivo = anchorMes || ultimoMesEnSerie;
+
+  // Vista filtrada: meses <= anchor, tomamos los últimos N.
+  const view = useMemo(() => {
+    const filtrada = serieCompleta.filter((p) => p.periodo <= anchorEfectivo);
+    const ventana = filtrada.slice(-meses);
+    return { ventana, resumen: recomputeResumen(ventana) };
+  }, [serieCompleta, meses, anchorEfectivo]);
+
   if (loading) return <LoadingScreen messages={["Cargando exposición spot..."]} />;
 
-  const r = data.resumen;
-
-  // Series ordenadas cronológicamente (de más antiguo a más reciente).
-  const serieAsc = data.serie.slice().reverse();
+  const r = view.resumen;
+  const serieAsc = view.ventana;
 
   const chartData = serieAsc.map((p) => ({
     mes: mesLabel(p.periodo),
@@ -81,12 +123,12 @@ export default function ModuloExposicionSpot() {
 
   const balanceData = serieAsc.map((p) => ({
     mes: mesLabel(p.periodo),
-    sub: -(p.subContratoMwh ?? 0),       // negativo, se ve hacia abajo
+    sub: -(p.subContratoMwh ?? 0),
     sobre: p.sobreContratoMwh ?? 0,
     neto: (p.sobreContratoMwh ?? 0) - (p.subContratoMwh ?? 0),
   }));
 
-  const sinDatos = data.serie.length === 0;
+  const sinDatos = serieAsc.length === 0;
 
   // Promedio del costo spot para línea de referencia
   const costosValidos = costoData.filter((d) => d.costo > 0);
@@ -105,8 +147,12 @@ export default function ModuloExposicionSpot() {
       <RangeSelector
         meses={meses}
         onMesesChange={setMeses}
-        ultimoMesDisponible={ultimoMesDisponible}
-        maxMeses={60}
+        anchorMes={anchorEfectivo}
+        onAnchorChange={(mes) => setAnchorMes(mes === ultimoMesEnSerie ? "" : mes)}
+        allowStartSelect
+        ultimoMesDisponible={ultimoMesEnSerie}
+        maxMeses={Math.max(1, serieCompleta.length || MAX_MESES)}
+        debounceMs={0}
       />
 
       {error && <AlertaBanner type="warning" message={error} />}
