@@ -205,14 +205,17 @@ export type OnboardingState = {
 };
 
 export async function loadOnboardingState(): Promise<OnboardingState> {
-  const profile = await fetchMyProfile();
-  const agentes = profile && profile.agentesCount > 0 ? await fetchMyAgentes() : [];
+  // Paralelizar profile + agentes: 1 round trip vs 2 secuenciales.
+  // me_agentes devuelve [] si no tiene agentes, no rompe.
+  const [profile, agentes] = await Promise.all([fetchMyProfile(), fetchMyAgentes()]);
   const nextStep = computeNextStep(profile, agentes.length);
   return { profile, agentes, nextStep };
 }
 
 function computeNextStep(profile: MyProfile | null, agentesCount: number): OnboardingStep {
   if (!profile) return "role";
+  // DB es fuente de verdad: si trigger ya marcó done (auto-link de trial signup), respetar.
+  if (profile.onboardingStep === "done") return "done";
   if (!profile.role) return "role";
   if (agentesCount === 0) return "agente";
   if (!profile.acceptedTermsAt) return "verify";

@@ -1,5 +1,15 @@
-import { CheckCircle, ChevronRight, Search, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  Building2,
+  CheckCircle,
+  ChevronRight,
+  Factory,
+  FileText,
+  Link2,
+  Search,
+  User,
+  X,
+} from "lucide-react";
+import { useCallback, useEffect, useRef, useState, type ComponentType, type SVGProps } from "react";
 import { useNavigate } from "react-router-dom";
 import { LoadingScreen } from "../../components/ui/LoadingScreen";
 import { Logo } from "../../components/ui/Logo";
@@ -20,8 +30,10 @@ import {
 // Helpers
 // ---------------------------------------------------------------------------
 
-const ROL_OPTIONS: { value: UserRole; label: string; description: string; emoji: string }[] = [
-  { value: "gran_consumidor", label: "Gran Consumidor", description: "Consumidores finales CAMMESA", emoji: "🏭" },
+type IconComponent = ComponentType<SVGProps<SVGSVGElement> & { size?: number | string }>;
+
+const ROL_OPTIONS: { value: UserRole; label: string; description: string; icon: IconComponent }[] = [
+  { value: "gran_consumidor", label: "Gran Consumidor", description: "Consumidores finales CAMMESA (GUMA, GUME, GUPA, GUDI)", icon: Factory },
 ];
 
 function useDebounce<T>(value: T, delayMs: number): T {
@@ -44,7 +56,9 @@ function PasoRol({
   currentRole: UserRole | null;
   onConfirm: (role: UserRole) => Promise<void>;
 }) {
-  const [selected, setSelected] = useState<UserRole | null>(currentRole);
+  // Auto-seleccionar cuando hay una sola opción disponible.
+  const initial = currentRole ?? (ROL_OPTIONS.length === 1 ? ROL_OPTIONS[0].value : null);
+  const [selected, setSelected] = useState<UserRole | null>(initial);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -79,7 +93,15 @@ function PasoRol({
             onClick={() => setSelected(opt.value)}
             type="button"
           >
-            <span className="text-2xl">{opt.emoji}</span>
+            <span
+              className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-lg ${
+                selected === opt.value
+                  ? "bg-[#15caca]/15 text-[#0e8a8a]"
+                  : "bg-slate-100 text-slate-500"
+              }`}
+            >
+              <opt.icon size={22} />
+            </span>
             <div className="flex-1">
               <p className={`font-semibold ${selected === opt.value ? "text-[#0e8a8a]" : "text-slate-800"}`}>
                 {opt.label}
@@ -224,7 +246,10 @@ function PasoAgente({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
           <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
             <div className="flex items-start justify-between gap-2">
-              <h3 className="text-base font-bold text-[#163759]">Confirmar vínculo</h3>
+              <h3 className="flex items-center gap-2 text-base font-bold text-[#163759]">
+                <Link2 size={16} className="text-[#0e8a8a]" />
+                Confirmar vínculo
+              </h3>
               <button
                 className="rounded-lg p-1 text-slate-400 hover:text-slate-600 transition-colors"
                 onClick={() => setShowConfirmModal(false)}
@@ -348,7 +373,11 @@ function PasoVerify({ onConfirm }: { onConfirm: () => Promise<void> }) {
 // Onboarding shell
 // ---------------------------------------------------------------------------
 
-const STEP_LABELS = ["Tu rol", "Tu empresa", "Términos"];
+const STEP_LABELS: { label: string; icon: IconComponent }[] = [
+  { label: "Tu rol", icon: User },
+  { label: "Tu empresa", icon: Building2 },
+  { label: "Términos", icon: FileText },
+];
 
 export default function AppOnboarding() {
   const { profile, refresh } = useAppContext();
@@ -404,33 +433,39 @@ export default function AppOnboarding() {
 
         {/* Step indicators */}
         <div className="mb-6 flex items-center justify-center gap-2">
-          {STEP_LABELS.map((label, i) => (
-            <div key={label} className="flex items-center gap-2">
-              <div
-                className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold transition-all ${
-                  i < currentStep
-                    ? "bg-[#15caca] text-white"
-                    : i === currentStep
-                    ? "bg-[#163759] text-white"
-                    : "bg-slate-200 text-slate-500"
-                }`}
-              >
-                {i < currentStep ? <CheckCircle size={14} /> : i + 1}
-              </div>
-              <span
-                className={`hidden sm:inline text-xs font-medium ${
-                  i === currentStep ? "text-[#163759]" : "text-slate-400"
-                }`}
-              >
-                {label}
-              </span>
-              {i < STEP_LABELS.length - 1 && (
+          {STEP_LABELS.map((step, i) => {
+            const StepIcon = step.icon;
+            const isActive = i === currentStep;
+            const isDone = i < currentStep;
+            return (
+              <div key={step.label} className="flex items-center gap-2">
                 <div
-                  className={`h-px w-6 sm:w-10 ${i < currentStep ? "bg-[#15caca]" : "bg-slate-200"}`}
-                />
-              )}
-            </div>
-          ))}
+                  className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold transition-all ${
+                    isDone
+                      ? "bg-[#15caca] text-white"
+                      : isActive
+                      ? "bg-[#163759] text-white"
+                      : "bg-slate-200 text-slate-500"
+                  }`}
+                >
+                  {isDone ? <CheckCircle size={14} /> : i + 1}
+                </div>
+                <span
+                  className={`hidden sm:inline-flex items-center gap-1.5 text-xs font-medium ${
+                    isActive ? "text-[#163759]" : "text-slate-400"
+                  }`}
+                >
+                  <StepIcon size={13} />
+                  {step.label}
+                </span>
+                {i < STEP_LABELS.length - 1 && (
+                  <div
+                    className={`h-px w-6 sm:w-10 ${isDone ? "bg-[#15caca]" : "bg-slate-200"}`}
+                  />
+                )}
+              </div>
+            );
+          })}
         </div>
 
         {/* Step content */}
