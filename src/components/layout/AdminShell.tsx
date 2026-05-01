@@ -36,7 +36,7 @@ function trialDaysRemaining(trial: CurrentTrial): number {
 function Sidebar({ trial }: { trial: CurrentTrial | null }) {
   const days = trial ? trialDaysRemaining(trial) : null;
   return (
-    <aside className="hidden w-[250px] shrink-0 border-r border-navy-border bg-white/70 backdrop-blur lg:flex lg:flex-col">
+    <aside className="sticky top-0 h-screen hidden w-[250px] shrink-0 border-r border-navy-border bg-white/70 backdrop-blur lg:flex lg:flex-col">
       <div className="border-b border-navy-border px-6 py-6">
         <div className="flex items-center gap-3">
           <Logo compact />

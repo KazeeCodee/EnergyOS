@@ -1,3 +1,4 @@
+import { Zap } from "lucide-react";
 import { useCallback, useState } from "react";
 import {
   Bar,
@@ -17,7 +18,7 @@ import { DataFooter } from "../../components/app/DataFooter";
 import { EmptyState } from "../../components/app/EmptyState";
 import { ModuleHeader } from "../../components/app/ModuleHeader";
 import { StatCard } from "../../components/app/StatCard";
-import { LoadingScreen } from "../../components/ui/LoadingScreen";
+import { ModuleSkeleton } from "../../components/ui/Skeleton";
 import { useAppContext } from "../../context/AppContext";
 import { useAsyncData } from "../../hooks/useAsyncData";
 import { fetchMercadoContexto } from "../../services/mercadoContexto";
@@ -70,7 +71,7 @@ export default function ModuloMercado() {
   );
   const { data, loading, error } = useAsyncData<MercadoContextoResponse>(loader, EMPTY);
 
-  if (loading) return <LoadingScreen messages={["Cargando contexto del mercado eléctrico..."]} />;
+  if (loading) return <ModuleSkeleton />;
 
   const resumen = data.resumen;
   const sinDatos = data.generacion.length === 0 && data.demanda.length === 0;
@@ -120,7 +121,7 @@ export default function ModuloMercado() {
       {data.warnings.map((w, i) => <AlertaBanner key={i} type="info" message={w} />)}
 
       {sinDatos ? (
-        <EmptyState icon="⚡" title="Sin datos de mercado" description="No hay datos disponibles del mercado eléctrico por el momento. Volvé más tarde." />
+        <EmptyState icon={<Zap size={28} className="text-slate-400" />} title="Sin datos de mercado" description="No hay datos disponibles del mercado eléctrico por el momento. Volvé más tarde." />
       ) : (
         <>
           {/* Cards resumen */}

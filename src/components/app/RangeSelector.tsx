@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { Select } from "../ui/Select";
 
 const MONTHS = [
   { value: 1, label: "Enero" },
@@ -160,54 +161,46 @@ export function RangeSelector({
             <span className="w-12 text-[11px] font-bold uppercase tracking-wider text-slate-400">
               Desde
             </span>
-            <select
-              className="h-10 min-w-32 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm focus:border-[#15caca] focus:outline-none focus:ring-2 focus:ring-[#15caca]/20"
+            <Select
+              className="w-32"
               value={start.month}
-              onChange={(event) => changeStart(buildMonthKey(start.year, Number(event.target.value)))}
-            >
-              {monthsForYear(start.year).map((month) => (
-                <option key={month.value} value={month.value}>{month.label}</option>
-              ))}
-            </select>
-            <select
-              className="h-10 min-w-24 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm focus:border-[#15caca] focus:outline-none focus:ring-2 focus:ring-[#15caca]/20"
+              onChange={(val) => changeStart(buildMonthKey(start.year, Number(val)))}
+              options={monthsForYear(start.year).map((m) => ({ value: m.value, label: m.label }))}
+            />
+            <Select
+              className="w-24"
               value={start.year}
-              onChange={(event) => {
-                const year = Number(event.target.value);
+              onChange={(val) => {
+                const year = Number(val);
                 const months = monthsForYear(year);
                 const month = months.some((item) => item.value === start.month) ? start.month : months[0]?.value;
                 if (month) changeStart(buildMonthKey(year, month));
               }}
-            >
-              {years.map((year) => <option key={year} value={year}>{year}</option>)}
-            </select>
+              options={years.map((y) => ({ value: y, label: y.toString() }))}
+            />
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
             <span className="w-12 text-[11px] font-bold uppercase tracking-wider text-slate-400">
               Hasta
             </span>
-            <select
-              className="h-10 min-w-32 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm focus:border-[#15caca] focus:outline-none focus:ring-2 focus:ring-[#15caca]/20"
+            <Select
+              className="w-32"
               value={end.month}
-              onChange={(event) => changeEnd(buildMonthKey(end.year, Number(event.target.value)))}
-            >
-              {monthsForYear(end.year).map((month) => (
-                <option key={month.value} value={month.value}>{month.label}</option>
-              ))}
-            </select>
-            <select
-              className="h-10 min-w-24 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm focus:border-[#15caca] focus:outline-none focus:ring-2 focus:ring-[#15caca]/20"
+              onChange={(val) => changeEnd(buildMonthKey(end.year, Number(val)))}
+              options={monthsForYear(end.year).map((m) => ({ value: m.value, label: m.label }))}
+            />
+            <Select
+              className="w-24"
               value={end.year}
-              onChange={(event) => {
-                const year = Number(event.target.value);
+              onChange={(val) => {
+                const year = Number(val);
                 const months = monthsForYear(year);
                 const month = months.some((item) => item.value === end.month) ? end.month : months.at(-1)?.value;
                 if (month) changeEnd(buildMonthKey(year, month));
               }}
-            >
-              {years.map((year) => <option key={year} value={year}>{year}</option>)}
-            </select>
+              options={years.map((y) => ({ value: y, label: y.toString() }))}
+            />
           </div>
         </div>
       </div>

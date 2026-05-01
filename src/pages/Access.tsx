@@ -1,28 +1,21 @@
-import { Eye, EyeOff, LogIn } from "lucide-react";
+import { Eye, EyeOff, Loader2, LogIn } from "lucide-react";
 import { useState, type FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Button } from "../components/ui/Button";
-import { LoadingScreen } from "../components/ui/LoadingScreen";
 import { Logo } from "../components/ui/Logo";
+import { useToast } from "../components/ui/Toast";
 import { useAppContext } from "../context/AppContext";
 import { isCurrentUserAdmin } from "../services/adminData";
-import { getCurrentTrial, setSession } from "../utils/session";
-
-const accessMessages = [
-  "Validando acceso...",
-  "Preparando información energética...",
-  "Organizando indicadores...",
-  "Listo",
-];
+import { setSession } from "../utils/session";
 
 export default function Access() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
   const { refresh } = useAppContext();
+  const toast = useToast();
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -33,38 +26,34 @@ export default function Access() {
     const validPassword = trimmedPassword.length >= 6;
 
     if (!validEmail || !validPassword) {
-      setError("El correo o la contraseña no son válidos. Verificá los datos ingresados.");
+      toast.error({
+        title: "Datos inválidos",
+        description: "Revisá el correo y la contraseña antes de continuar.",
+      });
       return;
     }
 
-    setError("");
     setLoading(true);
     try {
       await setSession(trimmedEmail, trimmedPassword);
-      await refresh();
-      const [isAdmin, trial] = await Promise.all([isCurrentUserAdmin(), getCurrentTrial()]);
-      if (isAdmin || trial) {
+      const [, isAdmin] = await Promise.all([refresh(), isCurrentUserAdmin()]);
+      if (isAdmin) {
         navigate("/admin", { replace: true });
         return;
       }
-      // Usuario cliente normal → app
       navigate("/app", { replace: true });
     } catch (caught) {
-      setError(
+      const description =
         caught instanceof Error
           ? caught.message
-          : "No pudimos validar tu acceso. Verificá los datos ingresados.",
-      );
+          : "Verificá los datos ingresados y volvé a intentar.";
+      toast.error({ title: "No pudimos iniciar sesión", description });
       setLoading(false);
     }
   };
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-navy px-4 py-10">
-      {loading ? (
-        <LoadingScreen messages={accessMessages} />
-      ) : null}
-
       <section className="w-full max-w-md rounded border border-navy-border bg-navy-medium p-6 shadow-panel md:p-8">
         <div className="mb-8 text-center">
           <div className="flex justify-center">
@@ -84,7 +73,8 @@ export default function Access() {
             <span className="text-sm font-medium text-ivory">Correo electrónico</span>
             <input
               autoComplete="email"
-              className="mt-2 w-full rounded border border-navy-border bg-navy px-4 py-3 text-ivory outline-none transition placeholder:text-mist/60 focus:border-forest"
+              className="mt-2 w-full rounded border border-navy-border bg-navy px-4 py-3 text-ivory outline-none transition placeholder:text-mist/60 focus:border-forest disabled:opacity-60 disabled:cursor-not-allowed"
+              disabled={loading}
               onChange={(event) => setEmail(event.target.value)}
               placeholder="tu@empresa.com.ar"
               type="email"
@@ -97,14 +87,16 @@ export default function Access() {
             <span className="mt-2 flex rounded border border-navy-border bg-navy focus-within:border-forest">
               <input
                 autoComplete="current-password"
-                className="min-w-0 flex-1 bg-transparent px-4 py-3 text-ivory outline-none placeholder:text-mist/60"
+                className="min-w-0 flex-1 bg-transparent px-4 py-3 text-ivory outline-none placeholder:text-mist/60 disabled:opacity-60 disabled:cursor-not-allowed"
+                disabled={loading}
                 onChange={(event) => setPassword(event.target.value)}
                 placeholder="••••••••"
                 type={showPassword ? "text" : "password"}
                 value={password}
               />
               <button
-                className="px-3 text-mist transition hover:text-ivory"
+                className="px-3 text-mist transition hover:text-ivory disabled:opacity-60"
+                disabled={loading}
                 onClick={() => setShowPassword((current) => !current)}
                 type="button"
                 aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
@@ -114,16 +106,28 @@ export default function Access() {
             </span>
           </label>
 
-          {error ? (
-            <p className="rounded border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-ivory">
-              {error}
-            </p>
-          ) : null}
-
-          <Button className="w-full py-3" type="submit">
-            <LogIn size={16} />
-            Ingresar
+          <Button className="w-full py-3" type="submit" disabled={loading}>
+            {loading ? (
+              <>
+                <Loader2 size={16} className="animate-spin" />
+                Validando...
+              </>
+            ) : (
+              <>
+                <LogIn size={16} />
+                Ingresar
+              </>
+            )}
           </Button>
+
+          <div className="text-center">
+            <Link
+              to="/recuperar"
+              className="text-sm text-mist transition hover:text-ivory"
+            >
+              ¿Olvidaste tu contraseña?
+            </Link>
+          </div>
         </form>
 
       </section>

@@ -1,3 +1,4 @@
+import { Leaf } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import {
   Area,
@@ -22,7 +23,7 @@ import { EmptyState } from "../../components/app/EmptyState";
 import { ModuleHeader } from "../../components/app/ModuleHeader";
 import { RangeSelector } from "../../components/app/RangeSelector";
 import { StatCard } from "../../components/app/StatCard";
-import { LoadingScreen } from "../../components/ui/LoadingScreen";
+import { ModuleSkeleton } from "../../components/ui/Skeleton";
 import { useAppContext } from "../../context/AppContext";
 import { useAsyncData } from "../../hooks/useAsyncData";
 import { fetchCompliance27191 } from "../../services/compliance27191";
@@ -91,7 +92,7 @@ export default function ModuloCumplimiento() {
     return { ventana, resumen: recomputeResumen(ventana) };
   }, [serieCompleta, meses, anchorEfectivo]);
 
-  if (loading) return <LoadingScreen messages={["Cargando cumplimiento 27.191..."]} />;
+  if (loading) return <ModuleSkeleton />;
 
   const r = view.resumen;
   const sinDatos = view.ventana.length === 0;
@@ -148,7 +149,7 @@ export default function ModuloCumplimiento() {
       )}
 
       {sinDatos ? (
-        <EmptyState icon="🌿" title="Sin datos de cumplimiento" description="No encontramos datos de renovables para este agente. Es posible que no tenga contratos MATER o que los datos aún no estén disponibles." />
+        <EmptyState icon={<Leaf size={28} className="text-emerald-500" />} title="Sin datos de cumplimiento" description="No encontramos datos de renovables para este agente. Es posible que no tenga contratos MATER o que los datos aún no estén disponibles." />
       ) : (
         <>
           <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">

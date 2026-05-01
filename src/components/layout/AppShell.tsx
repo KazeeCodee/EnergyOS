@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import {
   BarChart3,
   Building2,
@@ -11,8 +12,9 @@ import {
 } from "lucide-react";
 import { NavLink, useNavigate, useOutlet } from "react-router-dom";
 import { useAppContext } from "../../context/AppContext";
-import { clearSession } from "../../utils/session";
+import { clearSession, getCurrentTrial } from "../../utils/session";
 import { Logo } from "../ui/Logo";
+import { Skeleton } from "../ui/Skeleton";
 
 // ---------------------------------------------------------------------------
 // Nav config
@@ -77,8 +79,16 @@ function NavItem({
 }
 
 function Sidebar() {
-  const { agente } = useAppContext();
+  const { agente, status } = useAppContext();
   const navigate = useNavigate();
+  const [isTrial, setIsTrial] = useState(false);
+  const showAgenteSkeleton = !agente && status === "loading";
+
+  useEffect(() => {
+    getCurrentTrial().then((trial) => {
+      if (trial) setIsTrial(true);
+    });
+  }, []);
 
   const logout = () => {
     clearSession();
@@ -86,12 +96,16 @@ function Sidebar() {
   };
 
   return (
-    <aside className="hidden w-[240px] shrink-0 flex-col border-r border-slate-200 bg-white lg:flex">
+    <aside className="sticky top-0 h-screen hidden w-[240px] shrink-0 flex-col border-r border-slate-200 bg-white lg:flex">
       {/* Logo */}
       <div className="flex items-center gap-3 border-b border-slate-100 px-5 py-5">
         <Logo compact />
-        <span className="rounded-full bg-[#15caca]/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#0e8a8a]">
-          Cliente
+        <span
+          className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+            isTrial ? "bg-amber-100 text-amber-700" : "bg-[#15caca]/10 text-[#0e8a8a]"
+          }`}
+        >
+          {isTrial ? "Trial" : "Cliente"}
         </span>
       </div>
 
@@ -106,6 +120,15 @@ function Sidebar() {
             {agente.descripcion}
           </p>
           <p className="mt-0.5 text-xs text-slate-400 font-mono">{agente.nemo}</p>
+        </div>
+      ) : showAgenteSkeleton ? (
+        <div className="border-b border-slate-100 px-5 py-4">
+          <div className="flex items-center gap-2 text-xs text-slate-400 mb-1">
+            <Building2 size={12} />
+            <span className="uppercase tracking-wider font-semibold">Empresa</span>
+          </div>
+          <Skeleton height={14} width="80%" className="mb-1.5" />
+          <Skeleton height={10} width="50%" />
         </div>
       ) : null}
 
@@ -144,7 +167,7 @@ function Sidebar() {
 // ---------------------------------------------------------------------------
 
 function MobileHeader() {
-  const { agente } = useAppContext();
+  const { agente, status } = useAppContext();
   const navigate = useNavigate();
 
   const logout = () => {
@@ -160,6 +183,8 @@ function MobileHeader() {
           <span className="max-w-[160px] truncate text-xs font-semibold text-slate-600">
             {agente.descripcion}
           </span>
+        ) : !agente && status === "loading" ? (
+          <Skeleton height={12} width={120} />
         ) : null}
       </div>
       <button

@@ -1,3 +1,5 @@
+import { Calendar, Database } from "lucide-react";
+
 export function DataFooter({
   ultimoMesDisponible,
   fuente = "CAMMESA",
@@ -17,10 +19,10 @@ export function DataFooter({
   return (
     <div className="mt-8 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-4 text-xs text-slate-400">
       <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 font-medium text-slate-500">
-        📅 Datos hasta {label}
+        <Calendar size={14} className="text-slate-400" /> Datos hasta {label}
       </span>
       <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 font-medium text-slate-500">
-        🔌 Fuente {fuente}
+        <Database size={14} className="text-slate-400" /> Fuente {fuente}
       </span>
     </div>
   );

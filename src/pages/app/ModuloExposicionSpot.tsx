@@ -1,3 +1,4 @@
+import { TrendingUp } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import {
   Bar,
@@ -20,7 +21,7 @@ import { EmptyState } from "../../components/app/EmptyState";
 import { ModuleHeader } from "../../components/app/ModuleHeader";
 import { RangeSelector } from "../../components/app/RangeSelector";
 import { StatCard } from "../../components/app/StatCard";
-import { LoadingScreen } from "../../components/ui/LoadingScreen";
+import { ModuleSkeleton } from "../../components/ui/Skeleton";
 import { useAppContext } from "../../context/AppContext";
 import { useAsyncData } from "../../hooks/useAsyncData";
 import { fetchExposicionSpotMensual } from "../../services/exposicionSpot";
@@ -104,7 +105,7 @@ export default function ModuloExposicionSpot() {
     return { ventana, resumen: recomputeResumen(ventana) };
   }, [serieCompleta, meses, anchorEfectivo]);
 
-  if (loading) return <LoadingScreen messages={["Cargando exposición spot..."]} />;
+  if (loading) return <ModuleSkeleton />;
 
   const r = view.resumen;
   const serieAsc = view.ventana;
@@ -158,7 +159,7 @@ export default function ModuloExposicionSpot() {
       {error && <AlertaBanner type="warning" message={error} />}
 
       {sinDatos ? (
-        <EmptyState icon="📈" title="Sin datos de exposición" description="No hay registros de compra para este agente en el período seleccionado. Es posible que los datos aún no estén disponibles." />
+        <EmptyState icon={<TrendingUp size={28} className="text-slate-400" />} title="Sin datos de exposición" description="No hay registros de compra para este agente en el período seleccionado. Es posible que los datos aún no estén disponibles." />
       ) : (
         <>
           {/* Cards resumen */}

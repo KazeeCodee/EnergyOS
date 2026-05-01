@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Building2, Calendar, KeyRound, LogOut, MessageSquare, User } from "lucide-react";
+import { Building2, Calendar, Check, Database, KeyRound, LogOut, MessageSquare, RefreshCw, User } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { AlertaBanner } from "../../components/app/AlertaBanner";
 import { DataFooter } from "../../components/app/DataFooter";
@@ -140,7 +140,8 @@ export default function AppAjustes() {
                 </div>
               )}
               <div className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
-                ✓ Empresa vinculada
+                <Check size={12} strokeWidth={3} />
+                Empresa vinculada
               </div>
             </dl>
           ) : (
@@ -152,7 +153,9 @@ export default function AppAjustes() {
         <Seccion title="Estado de datos" icon={Calendar}>
           <div className="space-y-3">
             <div className="flex items-start gap-3 rounded-xl bg-slate-50 px-4 py-3">
-              <span className="text-xl">📅</span>
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white border border-slate-200 text-slate-500 shadow-sm">
+                <Calendar size={18} />
+              </div>
               <div>
                 <p className="text-sm font-semibold text-slate-700">Datos disponibles</p>
                 <p className="text-xs text-slate-500">
@@ -163,14 +166,18 @@ export default function AppAjustes() {
               </div>
             </div>
             <div className="flex items-start gap-3 rounded-xl bg-slate-50 px-4 py-3">
-              <span className="text-xl">🔌</span>
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white border border-slate-200 text-slate-500 shadow-sm">
+                <Database size={18} />
+              </div>
               <div>
                 <p className="text-sm font-semibold text-slate-700">Fuente</p>
                 <p className="text-xs text-slate-500">CAMMESA · Mercado Eléctrico Mayorista Argentina</p>
               </div>
             </div>
             <div className="flex items-start gap-3 rounded-xl bg-slate-50 px-4 py-3">
-              <span className="text-xl">🔄</span>
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white border border-slate-200 text-slate-500 shadow-sm">
+                <RefreshCw size={18} />
+              </div>
               <div>
                 <p className="text-sm font-semibold text-slate-700">Frecuencia de actualización</p>
                 <p className="text-xs text-slate-500">Mensual, junto con la publicación oficial de CAMMESA.</p>

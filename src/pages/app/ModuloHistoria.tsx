@@ -1,3 +1,4 @@
+import { Calendar } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import {
   Bar,
@@ -19,7 +20,7 @@ import { EmptyState } from "../../components/app/EmptyState";
 import { ModuleHeader } from "../../components/app/ModuleHeader";
 import { RangeSelector } from "../../components/app/RangeSelector";
 import { StatCard } from "../../components/app/StatCard";
-import { LoadingScreen } from "../../components/ui/LoadingScreen";
+import { ModuleSkeleton } from "../../components/ui/Skeleton";
 import { useAppContext } from "../../context/AppContext";
 import { useAsyncData } from "../../hooks/useAsyncData";
 import { fetchHistoriaEnergetica } from "../../services/historiaEnergetica";
@@ -203,7 +204,7 @@ export default function ModuloHistoria() {
     return { serie, heatmap: recomputeHeatmap(serie), resumen: recomputeResumen(serie) };
   }, [serieCompleta, meses, anchorEfectivo]);
 
-  if (loading) return <LoadingScreen messages={["Cargando historia energética..."]} />;
+  if (loading) return <ModuleSkeleton />;
 
   const r = view.resumen;
   const sinDatos = view.serie.length === 0;
@@ -241,7 +242,7 @@ export default function ModuloHistoria() {
       {error && <AlertaBanner type="warning" message={error} />}
 
       {sinDatos ? (
-        <EmptyState icon="📅" title="Sin historial disponible" description="No encontramos historial de consumo para este agente. Es posible que sea un agente nuevo o que los datos aún no estén procesados." />
+        <EmptyState icon={<Calendar size={28} className="text-slate-400" />} title="Sin historial disponible" description="No encontramos historial de consumo para este agente. Es posible que sea un agente nuevo o que los datos aún no estén procesados." />
       ) : (
         <>
           {r && (

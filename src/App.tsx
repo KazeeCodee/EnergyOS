@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { AppShell } from "./components/layout/AppShell";
 import { AdminShell } from "./components/layout/AdminShell";
 import { LoadingScreen } from "./components/ui/LoadingScreen";
+import { ModuleSkeleton } from "./components/ui/Skeleton";
 import { useAppContext } from "./context/AppContext";
 import AdminAnalytics from "./pages/admin/AdminAnalytics";
 import AdminModule1 from "./pages/admin/AdminModule1";
@@ -11,8 +12,10 @@ import AdminModule3 from "./pages/admin/AdminModule3";
 import AdminModule4 from "./pages/admin/AdminModule4";
 import SystemOverview from "./pages/admin/SystemOverview";
 import Access from "./pages/Access";
+import RecoverPassword from "./pages/RecoverPassword";
+import ResetPassword from "./pages/ResetPassword";
 import { isCurrentUserAdmin } from "./services/adminData";
-import { getCurrentTrial, getSession, syncSessionFromSupabase } from "./utils/session";
+import { getSession, syncSessionFromSupabase } from "./utils/session";
 
 // ---------------------------------------------------------------------------
 // Lazy client pages (code splitting)
@@ -26,7 +29,8 @@ const ModuloHistoria     = lazy(() => import("./pages/app/ModuloHistoria"));
 const ModuloMercado      = lazy(() => import("./pages/app/ModuloMercado"));
 const AppAjustes         = lazy(() => import("./pages/app/AppAjustes"));
 
-const clientLoading = <LoadingScreen messages={["Cargando módulo..."]} />;
+// Skeleton inline en lugar de LoadingScreen full-screen (evita parpadeo entre módulos).
+const clientLoading = <ModuleSkeleton />;
 
 // ---------------------------------------------------------------------------
 // AppRoute — guard para /app/*
@@ -35,9 +39,8 @@ const clientLoading = <LoadingScreen messages={["Cargando módulo..."]} />;
 function AppRoute() {
   const { status } = useAppContext();
 
-  if (status === "loading") {
-    return <LoadingScreen messages={["Verificando acceso...", "Preparando tu cuenta..."]} />;
-  }
+  // unauthenticated → kickout. Resto (loading + ready) montan AppShell con
+  // skeletons internos. Evita pantalla negra full-screen entre login y dashboard.
   if (status === "unauthenticated") {
     return <Navigate replace to="/" />;
   }
@@ -49,7 +52,7 @@ function AppRoute() {
     );
   }
 
-  // status === "ready"
+  // status === "loading" o "ready" → shell visible, contenido se llena cuando hay data.
   return (
     <Suspense fallback={clientLoading}>
       <AppShell />
@@ -76,8 +79,8 @@ function AdminRoute() {
           return;
         }
         setAuthenticated(true);
-        const [hasAdmin, trial] = await Promise.all([isCurrentUserAdmin(), getCurrentTrial()]);
-        if (active) setAuthorized(hasAdmin || Boolean(trial));
+        const hasAdmin = await isCurrentUserAdmin();
+        if (active) setAuthorized(hasAdmin);
       })
       .catch(() => {
         if (active) {
@@ -110,6 +113,10 @@ export default function App() {
       {/* Login */}
       <Route element={<Access />} path="/" />
       <Route element={<Access />} path="/acceso" />
+
+      {/* Recuperación de contraseña */}
+      <Route element={<RecoverPassword />} path="/recuperar" />
+      <Route element={<ResetPassword />} path="/reset-password" />
 
       {/* App cliente — /app/* */}
       <Route element={<AppRoute />} path="/app">

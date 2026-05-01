@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import { Activity, Gauge, Leaf, ShieldCheck } from "lucide-react";
+import { Activity, BarChart3, Gauge, Leaf, ShieldCheck } from "lucide-react";
 import {
   Area,
   AreaChart,
@@ -17,7 +17,7 @@ import { ChartCard, chartAxisTick, chartGridStroke, chartTooltipStyle } from "..
 import { DataFooter } from "../../components/app/DataFooter";
 import { EmptyState } from "../../components/app/EmptyState";
 import { StatCard } from "../../components/app/StatCard";
-import { LoadingScreen } from "../../components/ui/LoadingScreen";
+import { Skeleton, SkeletonChartCard, SkeletonStatCard } from "../../components/ui/Skeleton";
 import { useAppContext } from "../../context/AppContext";
 import { fetchInformeInicio } from "../../services/informeInicio";
 import type { InformeInicioMix, InformeInicioResponse } from "../../types/informeInicio";
@@ -250,22 +250,49 @@ const INITIAL_DATA: InformeInicioResponse = {
 };
 
 export default function AppHome() {
-  const { agente, ultimoMesDisponible } = useAppContext();
+  const { agente, ultimoMesDisponible, informe: informeFromContext } = useAppContext();
 
+  // Si AppContext ya precargó el informe, usarlo. Sino, fetch como fallback.
   const loader = useCallback(
     () => fetchInformeInicio({ nemo: agente?.nemo }),
     [agente?.nemo],
   );
 
-  const { data, loading, error } = useAsyncData<InformeInicioResponse>(loader, INITIAL_DATA);
+  const { data: fetched, loading, error } = useAsyncData<InformeInicioResponse>(
+    loader,
+    INITIAL_DATA,
+    { skip: Boolean(informeFromContext) },
+  );
 
-  if (loading) {
-    return <LoadingScreen messages={["Cargando informe energético...", "Procesando datos..."]} />;
-  }
+  const data = informeFromContext ?? fetched;
+  const isLoading = !informeFromContext && loading;
 
   const { cliente, mercado, contexto } = data;
   const demandaMes = cliente.demandaMes;
   const spotPct = demandaMes?.mix?.spotPct ?? 0;
+
+  // Skeleton del dashboard mientras carga: shell ya visible, solo placeholders.
+  if (isLoading) {
+    return (
+      <div>
+        <div className="mb-6">
+          <Skeleton height={11} width={140} className="mb-2" />
+          <Skeleton height={28} width="55%" className="mb-2" />
+          <Skeleton height={12} width="35%" />
+        </div>
+        <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <SkeletonStatCard />
+          <SkeletonStatCard />
+          <SkeletonStatCard />
+          <SkeletonStatCard />
+        </div>
+        <div className="grid gap-4 lg:grid-cols-2">
+          <SkeletonChartCard />
+          <SkeletonChartCard />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -284,13 +311,19 @@ export default function AppHome() {
 
       {/* Error global */}
       {error && (
-        <AlertaBanner type="warning" message={`No se pudo cargar el informe: ${error}`} />
+        <div className="mb-6">
+          <AlertaBanner type="warning" message={`No se pudo cargar el informe: ${error}`} />
+        </div>
       )}
 
       {/* Advertencias del servidor */}
-      {contexto.warnings?.map((w, i) => (
-        <AlertaBanner key={i} type="info" message={w} />
-      ))}
+      {contexto.warnings && contexto.warnings.length > 0 && (
+        <div className="mb-6 space-y-2">
+          {contexto.warnings.map((w, i) => (
+            <AlertaBanner key={i} type="info" message={w} />
+          ))}
+        </div>
+      )}
 
       {/* Alertas automáticas */}
       {cliente.disponible && <Alertas cliente={cliente} />}
@@ -298,7 +331,7 @@ export default function AppHome() {
       {/* Cliente sin datos */}
       {!cliente.disponible && (
         <EmptyState
-          icon="📊"
+          icon={<BarChart3 size={28} className="text-slate-400" />}
           title="Sin datos disponibles"
           description={
             cliente.razonNoDisponible ??

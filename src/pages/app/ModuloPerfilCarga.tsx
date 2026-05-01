@@ -1,3 +1,4 @@
+import { TrendingDown } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import {
   Bar,
@@ -18,7 +19,7 @@ import { EmptyState } from "../../components/app/EmptyState";
 import { ModuleHeader } from "../../components/app/ModuleHeader";
 import { RangeSelector } from "../../components/app/RangeSelector";
 import { StatCard } from "../../components/app/StatCard";
-import { LoadingScreen } from "../../components/ui/LoadingScreen";
+import { ModuleSkeleton } from "../../components/ui/Skeleton";
 import { useAppContext } from "../../context/AppContext";
 import { useAsyncData } from "../../hooks/useAsyncData";
 import { fetchFactorCargaMensual } from "../../services/factorCarga";
@@ -107,7 +108,7 @@ export default function ModuloPerfilCarga() {
     return { serie, benchmark, resumen: recomputeResumen(serie) };
   }, [serieCompleta, data.benchmark, meses, anchorEfectivo]);
 
-  if (loading) return <LoadingScreen messages={["Cargando perfil de carga..."]} />;
+  if (loading) return <ModuleSkeleton />;
 
   const r = view.resumen;
   const sinDatos = view.serie.length === 0;
@@ -150,7 +151,7 @@ export default function ModuloPerfilCarga() {
       {error && <AlertaBanner type="warning" message={error} />}
 
       {sinDatos ? (
-        <EmptyState icon="📉" title="Sin datos de perfil de carga" description="No encontramos datos de apertura pico/valle/resto para este agente. Es posible que aún no estén disponibles para tu tipo de agente." />
+        <EmptyState icon={<TrendingDown size={28} className="text-slate-400" />} title="Sin datos de perfil de carga" description="No encontramos datos de apertura pico/valle/resto para este agente. Es posible que aún no estén disponibles para tu tipo de agente." />
       ) : (
         <>
           {/* Cards */}
