@@ -6,7 +6,6 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
-  Cell,
   ComposedChart,
   Legend,
   Line,
@@ -139,6 +138,14 @@ export default function ModuloCumplimiento() {
       />
 
       {error && <AlertaBanner type="warning" message={error} />}
+      {!sinDatos && (
+        <div className="mb-5">
+          <AlertaBanner
+            type="info"
+            message="La Ley 27.191 evalúa el cumplimiento al cierre anual (31/dic). Los indicadores mensuales son orientativos sobre el ritmo del año."
+          />
+        </div>
+      )}
       {!sinDatos && !r.cumpleYtd && (
         <div className="mb-5">
           <AlertaBanner
@@ -172,18 +179,18 @@ export default function ModuloCumplimiento() {
               tone={r.multaEstimadaPesos > 0 ? "amber" : "default"}
             />
             <StatCard
-              label="Cumple YTD"
+              label="Cumple Ley 27.191"
               value={r.cumpleYtd ? "Sí" : "No"}
-              sub={r.anioEnCurso ? `Año ${r.anioEnCurso}` : "Año en curso"}
+              sub={`Indicador legal · Año ${r.anioEnCurso ?? "en curso"}`}
               tone={r.cumpleYtd ? "emerald" : "red"}
             />
           </div>
 
-          {/* Mensual real vs obligación */}
+          {/* Mensual real vs obligación — orientativo (la ley se evalúa anualmente) */}
           {realVsObligData.length > 0 && (
             <ChartCard
-              title="% Renovable real vs. obligación mensual"
-              hint="Por mes: cuánto renovable cubriste (verde si cumplís, rojo si no) vs. el porcentaje exigido por ley."
+              title="Ritmo mensual — orientativo (la ley se evalúa anualmente)"
+              hint="Comparativa por mes entre el % renovable cubierto y el % exigido. Los meses bajos no implican incumplimiento si el acumulado anual cierra por encima de la obligación."
               className="mb-5"
             >
               <ResponsiveContainer height={240} width="100%">
@@ -196,9 +203,7 @@ export default function ModuloCumplimiento() {
                     formatter={(v: unknown, n: unknown) => [`${(v as number).toFixed(1)}%`, n as string]}
                   />
                   <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} iconType="circle" iconSize={8} />
-                  <Bar dataKey="real" name="Renovable real" radius={[4, 4, 0, 0]}>
-                    {realVsObligData.map((d, i) => <Cell key={i} fill={d.cumple ? "#10b981" : "#ef4444"} />)}
-                  </Bar>
+                  <Bar dataKey="real" name="Renovable real" fill="#15caca" radius={[4, 4, 0, 0]} />
                   <Bar dataKey="obligacion" name="Obligación" fill="#cbd5e1" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
