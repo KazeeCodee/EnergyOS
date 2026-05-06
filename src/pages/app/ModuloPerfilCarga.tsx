@@ -165,7 +165,7 @@ export default function ModuloPerfilCarga() {
             <StatCard
               label="% Valle promedio"
               value={fmtPct(r.pctVallePromedio)}
-              sub="Horas 0–6h"
+              sub="Horas 0–5h"
               tone="teal"
             />
             <StatCard
