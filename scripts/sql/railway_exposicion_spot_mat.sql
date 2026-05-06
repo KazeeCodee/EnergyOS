@@ -12,7 +12,13 @@ end;
 $$;
 
 drop materialized view if exists public.vw_exposicion_spot_mensual;
-drop materialized view if exists public.vw_consumo_gu_mensual;
+-- CASCADE necesario porque vw_consumo_gu_mensual es base de muchos marts.
+-- Despues de aplicar este script, hay que reaplicar en orden:
+--   railway_compliance_27191.sql  →  railway_compliance_27191_extension_2017_2020.sql
+--   railway_factor_carga.sql
+--   railway_historia_energetica.sql
+--   railway_dashboard_inicio.sql
+drop materialized view if exists public.vw_consumo_gu_mensual cascade;
 
 create materialized view public.vw_consumo_gu_mensual as
 with guma_new as (
@@ -255,7 +261,45 @@ gudi_dexc as (
       ),
       0
     ) as compra_spot_resto_mwh,
-    0::numeric as compra_spot_pesos,
+    -- compra_spot_pesos para GUDI = volumen total spot * precio DEX promedio del mes
+    -- (Aproximacion v1: usa precio promedio del mes — todas las bandas/dias.
+    --  Mejora futura: cruzar volumen por banda x precio por banda especifico.)
+    coalesce(
+      (
+        greatest(
+          (coalesce(public.parse_es_number(r.col_013), 0)
+           + coalesce(public.parse_es_number(r.col_016), 0)
+           + coalesce(public.parse_es_number(r.col_019), 0))
+          - (coalesce(public.parse_es_number(r.col_004), 0)
+             + coalesce(public.parse_es_number(r.col_007), 0)
+             + coalesce(public.parse_es_number(r.col_010), 0)),
+          0
+        )
+        + greatest(
+          (coalesce(public.parse_es_number(r.col_011), 0)
+           + coalesce(public.parse_es_number(r.col_014), 0)
+           + coalesce(public.parse_es_number(r.col_017), 0))
+          - (coalesce(public.parse_es_number(r.col_002), 0)
+             + coalesce(public.parse_es_number(r.col_005), 0)
+             + coalesce(public.parse_es_number(r.col_008), 0)),
+          0
+        )
+        + greatest(
+          (coalesce(public.parse_es_number(r.col_012), 0)
+           + coalesce(public.parse_es_number(r.col_015), 0)
+           + coalesce(public.parse_es_number(r.col_018), 0))
+          - (coalesce(public.parse_es_number(r.col_003), 0)
+             + coalesce(public.parse_es_number(r.col_006), 0)
+             + coalesce(public.parse_es_number(r.col_009), 0)),
+          0
+        )
+      ) * (
+        select pdx.precio_dex_promedio_pesos_mwh
+        from public.vw_precios_dex_mensual pdx
+        where pdx.anio = r.anio and pdx.mes = r.mes
+      ),
+      0
+    ) as compra_spot_pesos,
     'gudi_dexc_19'::text as source_layout
   from public.raw_dexc r
   where r.col_count = 19
