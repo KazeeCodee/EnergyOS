@@ -20,7 +20,7 @@ export type Compliance27191Point = {
   brechaMwh: number | null;
   multaEstimadaPesos: number | null;
   multaRefPesosMwh: number | null;
-  multaMetodo: "tabla_obligacion" | "cliente_12m" | "universo_anual" | "sin_precio" | string;
+  multaMetodo: "tabla_obligacion" | "cvp_alternativos" | "cliente_12m" | "universo_anual" | "sin_precio" | string;
   cumpleMes: boolean;
   cumpleYtd: boolean;
   obligacionFuente: string;

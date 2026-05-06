@@ -238,8 +238,8 @@ Deno.serve(async (req) => {
       resumen: buildResumen(serie),
       serie,
       notas: {
-        multa: "Estimación MVP: usa override de tabla si existe; si no, precio renovable promedio del cliente 12m o universo anual.",
-        obligacion: "Tabla configurable compliance_27191_obligacion en Railway.",
+        multa: "Calculada con CVP de combustibles alternativos del MEM (gasoil/fueloil) promedio 12 meses previos × cotización dólar BCRA, según Art. 11 Ley 27.191. Fallback a precio MATER si no hay 12m de CVP cargados.",
+        obligacion: "Cronograma Ley 27.191 Art. 8 cargado en compliance_27191_obligacion (Railway).",
       },
     });
   } catch (error) {

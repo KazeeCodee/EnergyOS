@@ -266,9 +266,19 @@ export default function ModuloCumplimiento() {
                   <Line yAxisId="right" dataKey="multa" name="Multa (M$)" stroke="#f97316" strokeWidth={2.5} dot={{ r: 3, fill: "#f97316" }} type="monotone" />
                 </ComposedChart>
               </ResponsiveContainer>
-              {data.notas.multa && (
-                <p className="mt-3 text-xs text-slate-400 italic">{data.notas.multa}</p>
-              )}
+              <div className="mt-3 space-y-1">
+                {r.ultimoMes?.multaMetodo && (
+                  <p className="text-[11px] font-semibold text-slate-500">
+                    Método de cálculo:{" "}
+                    <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-700">
+                      {r.ultimoMes.multaMetodo}
+                    </span>
+                  </p>
+                )}
+                {data.notas.multa && (
+                  <p className="text-xs text-slate-400 italic">{data.notas.multa}</p>
+                )}
+              </div>
             </ChartCard>
           )}
         </>
