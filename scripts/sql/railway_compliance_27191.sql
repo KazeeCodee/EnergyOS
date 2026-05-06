@@ -123,6 +123,22 @@ with_refs as (
       when sum(b.renovable_contratado_mwh) over universo_anual > 0
         then round(sum(b.importe_renovable_pesos) over universo_anual / sum(b.renovable_contratado_mwh) over universo_anual, 6)
     end as precio_universo_anual_pesos_mwh,
+    -- CVP combustibles alternativos promedio 12m anteriores * cotizacion del mes
+    -- (Ley 27.191 Art. 11: la multa se paga al CVP gasoil/fueloil promedio
+    --  ponderado de los 12 meses del anio calendario anterior)
+    (
+      select round(
+        avg(cb.costo_total_usd_mwh_alt) * (
+          select cd.cotizacion_ars
+          from public.cotizacion_dolar_mensual cd
+          where cd.anio = b.anio and cd.mes = b.mes
+        ),
+        2
+      )
+      from public.combustibles_precios_mensual cb
+      where (cb.anio * 100 + cb.mes)
+            between ((b.anio - 1) * 100 + b.mes) and (b.anio * 100 + b.mes - 1)
+    ) as precio_cvp_alternativos_pesos_mwh,
     sum(b.demanda_real_mwh) over ytd as demanda_ytd_mwh,
     sum(b.renovable_contratado_mwh) over ytd as renovable_ytd_mwh
   from base b
@@ -152,9 +168,17 @@ calculated as (
     case
       when demanda_ytd_mwh > 0 then round(renovable_ytd_mwh / demanda_ytd_mwh, 6)
     end as pct_renovable_ytd,
-    coalesce(multa_override_pesos_mwh, precio_cliente_12m_pesos_mwh, precio_universo_anual_pesos_mwh, 0) as multa_ref_pesos_mwh,
+    -- Orden de fallback: override > CVP gasoil (oficial) > MATER cliente > MATER universo > 0
+    coalesce(
+      multa_override_pesos_mwh,
+      precio_cvp_alternativos_pesos_mwh,
+      precio_cliente_12m_pesos_mwh,
+      precio_universo_anual_pesos_mwh,
+      0
+    ) as multa_ref_pesos_mwh,
     case
       when multa_override_pesos_mwh is not null then 'tabla_obligacion'
+      when precio_cvp_alternativos_pesos_mwh is not null then 'cvp_alternativos'
       when precio_cliente_12m_pesos_mwh is not null then 'cliente_12m'
       when precio_universo_anual_pesos_mwh is not null then 'universo_anual'
       else 'sin_precio'
