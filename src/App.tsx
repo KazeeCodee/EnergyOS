@@ -27,6 +27,7 @@ const ModuloCumplimiento = lazy(() => import("./pages/app/ModuloCumplimiento"));
 const ModuloPerfilCarga  = lazy(() => import("./pages/app/ModuloPerfilCarga"));
 const ModuloHistoria     = lazy(() => import("./pages/app/ModuloHistoria"));
 const ModuloMercado      = lazy(() => import("./pages/app/ModuloMercado"));
+const ModuloAuditoriaDte = lazy(() => import("./pages/app/ModuloAuditoriaDte"));
 const AppAjustes         = lazy(() => import("./pages/app/AppAjustes"));
 
 // Skeleton inline en lugar de LoadingScreen full-screen (evita parpadeo entre módulos).
@@ -143,6 +144,10 @@ export default function App() {
         <Route
           path="mercado"
           element={<Suspense fallback={clientLoading}><ModuloMercado /></Suspense>}
+        />
+        <Route
+          path="auditoria-dte"
+          element={<Suspense fallback={clientLoading}><ModuloAuditoriaDte /></Suspense>}
         />
         <Route
           path="ajustes"

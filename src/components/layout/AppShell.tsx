@@ -6,6 +6,7 @@ import {
   History,
   Home,
   LogOut,
+  ReceiptText,
   Settings,
   TrendingUp,
   Zap,
@@ -27,6 +28,7 @@ const appNav = [
   { to: "/app/perfil-carga",      label: "Perfil de Carga",       icon: TrendingUp, exact: false },
   { to: "/app/historia",          label: "Historia Energética",   icon: History,    exact: false },
   { to: "/app/mercado",           label: "Mercado Eléctrico",     icon: BarChart3,  exact: false },
+  { to: "/app/auditoria-dte",      label: "Auditoria DTE",         icon: ReceiptText, exact: false },
 ];
 
 const bottomNav = [
@@ -211,6 +213,7 @@ function MobileBottomNav() {
     { to: "/app/perfil-carga",           label: "Carga",    icon: TrendingUp, exact: false },
     { to: "/app/historia",               label: "Historia", icon: History,    exact: false },
     { to: "/app/mercado",                label: "Mercado",  icon: BarChart3,  exact: false },
+    { to: "/app/auditoria-dte",           label: "DTE",      icon: ReceiptText, exact: false },
     { to: "/app/ajustes",                label: "Ajustes",  icon: Settings,   exact: false },
   ];
 
