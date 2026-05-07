@@ -3,12 +3,9 @@ import {
   BarChart3,
   Building2,
   Flame,
-  FolderLock,
   History,
   Home,
-  ListChecks,
   LogOut,
-  PiggyBank,
   ReceiptText,
   Settings,
   TrendingUp,
@@ -32,9 +29,6 @@ const appNav = [
   { to: "/app/historia",          label: "Historia Energética",   icon: History,    exact: false },
   { to: "/app/mercado",           label: "Mercado Eléctrico",     icon: BarChart3,  exact: false },
   { to: "/app/auditoria-dte",      label: "Auditoria DTE",         icon: ReceiptText, exact: false },
-  { to: "/app/acciones",           label: "Acciones",              icon: ListChecks, exact: false },
-  { to: "/app/oportunidades-ahorro", label: "Oportunidades",       icon: PiggyBank,  exact: false },
-  { to: "/app/centro-documental",   label: "Documentos",            icon: FolderLock, exact: false },
 ];
 
 const bottomNav = [
@@ -220,21 +214,18 @@ function MobileBottomNav() {
     { to: "/app/historia",               label: "Historia", icon: History,    exact: false },
     { to: "/app/mercado",                label: "Mercado",  icon: BarChart3,  exact: false },
     { to: "/app/auditoria-dte",           label: "DTE",      icon: ReceiptText, exact: false },
-    { to: "/app/acciones",                label: "Acciones", icon: ListChecks, exact: false },
-    { to: "/app/oportunidades-ahorro",    label: "Ahorro",   icon: PiggyBank,  exact: false },
-    { to: "/app/centro-documental",        label: "Docs",     icon: FolderLock, exact: false },
     { to: "/app/ajustes",                label: "Ajustes",  icon: Settings,   exact: false },
   ];
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-30 flex overflow-x-auto border-t border-slate-200 bg-white lg:hidden">
+    <nav className="fixed bottom-0 left-0 right-0 z-30 flex border-t border-slate-200 bg-white lg:hidden">
       {mobileNav.map((item) => (
         <NavLink
           key={item.to}
           to={item.to}
           end={item.exact}
           className={({ isActive }) =>
-            `flex min-w-16 flex-none flex-col items-center gap-0.5 py-2 text-[10px] font-medium transition-colors ${
+            `flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px] font-medium transition-colors ${
               isActive ? "text-[#0e8a8a]" : "text-slate-400"
             }`
           }

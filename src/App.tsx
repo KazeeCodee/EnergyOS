@@ -28,9 +28,6 @@ const ModuloPerfilCarga  = lazy(() => import("./pages/app/ModuloPerfilCarga"));
 const ModuloHistoria     = lazy(() => import("./pages/app/ModuloHistoria"));
 const ModuloMercado      = lazy(() => import("./pages/app/ModuloMercado"));
 const ModuloAuditoriaDte = lazy(() => import("./pages/app/ModuloAuditoriaDte"));
-const ModuloAcciones     = lazy(() => import("./pages/app/ModuloAccionesEnergeticas"));
-const ModuloOportunidades = lazy(() => import("./pages/app/ModuloOportunidadesAhorro"));
-const ModuloCentroDocumental = lazy(() => import("./pages/app/ModuloCentroDocumental"));
 const AppAjustes         = lazy(() => import("./pages/app/AppAjustes"));
 
 // Skeleton inline en lugar de LoadingScreen full-screen (evita parpadeo entre módulos).
@@ -151,18 +148,6 @@ export default function App() {
         <Route
           path="auditoria-dte"
           element={<Suspense fallback={clientLoading}><ModuloAuditoriaDte /></Suspense>}
-        />
-        <Route
-          path="acciones"
-          element={<Suspense fallback={clientLoading}><ModuloAcciones /></Suspense>}
-        />
-        <Route
-          path="oportunidades-ahorro"
-          element={<Suspense fallback={clientLoading}><ModuloOportunidades /></Suspense>}
-        />
-        <Route
-          path="centro-documental"
-          element={<Suspense fallback={clientLoading}><ModuloCentroDocumental /></Suspense>}
         />
         <Route
           path="ajustes"
