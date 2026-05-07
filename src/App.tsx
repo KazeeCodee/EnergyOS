@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { AppShell } from "./components/layout/AppShell";
 import { AdminShell } from "./components/layout/AdminShell";
@@ -15,7 +15,8 @@ import Access from "./pages/Access";
 import RecoverPassword from "./pages/RecoverPassword";
 import ResetPassword from "./pages/ResetPassword";
 import { isCurrentUserAdmin } from "./services/adminData";
-import { getSession, syncSessionFromSupabase } from "./utils/session";
+import { getCurrentTrial, getSession, syncSessionFromSupabase } from "./utils/session";
+import type { PremiumModuleKey } from "./utils/trialAccess";
 
 // ---------------------------------------------------------------------------
 // Lazy client pages (code splitting)
@@ -59,6 +60,35 @@ function AppRoute() {
       <AppShell />
     </Suspense>
   );
+}
+
+function TrialPremiumRoute({
+  moduleKey,
+  children,
+}: {
+  moduleKey: PremiumModuleKey;
+  children: ReactNode;
+}) {
+  const [checking, setChecking] = useState(true);
+  const [isTrial, setIsTrial] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    getCurrentTrial()
+      .then((trial) => {
+        if (active) setIsTrial(Boolean(trial));
+      })
+      .finally(() => {
+        if (active) setChecking(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  if (checking) return clientLoading;
+  if (isTrial) return <Navigate replace to={`/app?premium=${moduleKey}`} />;
+  return <>{children}</>;
 }
 
 // ---------------------------------------------------------------------------
@@ -127,27 +157,27 @@ export default function App() {
         />
         <Route
           path="exposicion-spot"
-          element={<Suspense fallback={clientLoading}><ModuloExposicion /></Suspense>}
+          element={<Suspense fallback={clientLoading}><TrialPremiumRoute moduleKey="exposicion-spot"><ModuloExposicion /></TrialPremiumRoute></Suspense>}
         />
         <Route
           path="cumplimiento-renovable"
-          element={<Suspense fallback={clientLoading}><ModuloCumplimiento /></Suspense>}
+          element={<Suspense fallback={clientLoading}><TrialPremiumRoute moduleKey="cumplimiento-renovable"><ModuloCumplimiento /></TrialPremiumRoute></Suspense>}
         />
         <Route
           path="perfil-carga"
-          element={<Suspense fallback={clientLoading}><ModuloPerfilCarga /></Suspense>}
+          element={<Suspense fallback={clientLoading}><TrialPremiumRoute moduleKey="perfil-carga"><ModuloPerfilCarga /></TrialPremiumRoute></Suspense>}
         />
         <Route
           path="historia"
-          element={<Suspense fallback={clientLoading}><ModuloHistoria /></Suspense>}
+          element={<Suspense fallback={clientLoading}><TrialPremiumRoute moduleKey="historia"><ModuloHistoria /></TrialPremiumRoute></Suspense>}
         />
         <Route
           path="mercado"
-          element={<Suspense fallback={clientLoading}><ModuloMercado /></Suspense>}
+          element={<Suspense fallback={clientLoading}><TrialPremiumRoute moduleKey="mercado"><ModuloMercado /></TrialPremiumRoute></Suspense>}
         />
         <Route
           path="auditoria-dte"
-          element={<Suspense fallback={clientLoading}><ModuloAuditoriaDte /></Suspense>}
+          element={<Suspense fallback={clientLoading}><TrialPremiumRoute moduleKey="auditoria-dte"><ModuloAuditoriaDte /></TrialPremiumRoute></Suspense>}
         />
         <Route
           path="ajustes"

@@ -5,6 +5,7 @@ import {
   Flame,
   History,
   Home,
+  Lock,
   LogOut,
   ReceiptText,
   Settings,
@@ -14,6 +15,7 @@ import {
 import { NavLink, useNavigate, useOutlet } from "react-router-dom";
 import { useAppContext } from "../../context/AppContext";
 import { clearSession, getCurrentTrial } from "../../utils/session";
+import type { PremiumModuleKey } from "../../utils/trialAccess";
 import { Logo } from "../ui/Logo";
 import { Skeleton } from "../ui/Skeleton";
 
@@ -35,6 +37,15 @@ const bottomNav = [
   { to: "/app/ajustes", label: "Ajustes", icon: Settings },
 ];
 
+const premiumNavKeyByPath: Record<string, PremiumModuleKey> = {
+  "/app/exposicion-spot": "exposicion-spot",
+  "/app/cumplimiento-renovable": "cumplimiento-renovable",
+  "/app/perfil-carga": "perfil-carga",
+  "/app/historia": "historia",
+  "/app/mercado": "mercado",
+  "/app/auditoria-dte": "auditoria-dte",
+};
+
 // ---------------------------------------------------------------------------
 // Sidebar
 // ---------------------------------------------------------------------------
@@ -44,16 +55,23 @@ function NavItem({
   label,
   icon: Icon,
   exact,
+  isTrial = false,
 }: {
   to: string;
   label: string;
   icon: React.ElementType;
   exact: boolean;
+  isTrial?: boolean;
 }) {
+  const premiumKey = premiumNavKeyByPath[to];
+  const trialLocked = Boolean(isTrial && premiumKey);
+  const NavIcon = trialLocked ? Lock : Icon;
+  const target = trialLocked ? `/app?premium=${premiumKey}` : to;
+
   return (
     <NavLink
       end={exact}
-      to={to}
+      to={target}
       className={({ isActive }) =>
         `group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-150 ${
           isActive
@@ -71,7 +89,7 @@ function NavItem({
                 : "bg-slate-100 text-slate-400 group-hover:bg-slate-200 group-hover:text-slate-600"
             }`}
           >
-            <Icon size={15} />
+            <NavIcon size={15} />
           </span>
           {label}
         </>
@@ -140,7 +158,7 @@ function Sidebar() {
           Módulos
         </p>
         {appNav.map((item) => (
-          <NavItem key={item.to} {...item} />
+          <NavItem key={item.to} {...item} isTrial={isTrial} />
         ))}
       </nav>
 
@@ -206,6 +224,7 @@ function MobileHeader() {
 // ---------------------------------------------------------------------------
 
 function MobileBottomNav() {
+  const [isTrial, setIsTrial] = useState(false);
   const mobileNav = [
     { to: "/app",                        label: "Inicio",   icon: Home,       exact: true  },
     { to: "/app/exposicion-spot",        label: "Spot",     icon: Flame,      exact: false },
@@ -217,12 +236,23 @@ function MobileBottomNav() {
     { to: "/app/ajustes",                label: "Ajustes",  icon: Settings,   exact: false },
   ];
 
+  useEffect(() => {
+    getCurrentTrial().then((trial) => {
+      if (trial) setIsTrial(true);
+    });
+  }, []);
+
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-30 flex border-t border-slate-200 bg-white lg:hidden">
-      {mobileNav.map((item) => (
+      {mobileNav.map((item) => {
+        const premiumKey = premiumNavKeyByPath[item.to];
+        const trialLocked = Boolean(isTrial && premiumKey);
+        const target = trialLocked ? `/app?premium=${premiumKey}` : item.to;
+        const Icon = trialLocked ? Lock : item.icon;
+        return (
         <NavLink
           key={item.to}
-          to={item.to}
+          to={target}
           end={item.exact}
           className={({ isActive }) =>
             `flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px] font-medium transition-colors ${
@@ -232,12 +262,13 @@ function MobileBottomNav() {
         >
           {({ isActive }) => (
             <>
-              <item.icon size={20} strokeWidth={isActive ? 2.5 : 1.8} />
+              <Icon size={20} strokeWidth={isActive ? 2.5 : 1.8} />
               <span>{item.label}</span>
             </>
           )}
         </NavLink>
-      ))}
+        );
+      })}
     </nav>
   );
 }

@@ -15,7 +15,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { AlertaBanner } from "../../components/app/AlertaBanner";
 import { ChartCard, chartAxisTick, chartGridStroke, chartTooltipStyle } from "../../components/app/ChartCard";
 import { DataFooter } from "../../components/app/DataFooter";
@@ -37,6 +37,7 @@ import type { HistoriaEnergeticaResponse } from "../../types/historiaEnergetica"
 import type { InformeInicioMix, InformeInicioResponse } from "../../types/informeInicio";
 import { useAsyncData } from "../../hooks/useAsyncData";
 import { getCurrentTrial } from "../../utils/session";
+import { getPremiumModuleCopy } from "../../utils/trialAccess";
 import {
   buildExecutiveInsights,
   buildModulePreviewState,
@@ -429,6 +430,49 @@ function ExecutiveInsights({ insights }: { insights: ReturnType<typeof buildExec
   );
 }
 
+function PremiumUpsellNotice({
+  moduleKey,
+  onClose,
+}: {
+  moduleKey: string | null;
+  onClose: () => void;
+}) {
+  const copy = getPremiumModuleCopy(moduleKey);
+  if (!copy) return null;
+
+  return (
+    <section className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 p-5 shadow-sm">
+      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+        <div className="max-w-3xl">
+          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-amber-700">
+            {copy.eyebrow}
+          </p>
+          <h2 className="mt-1 text-xl font-bold text-[#163759]">{copy.title}</h2>
+          <p className="mt-2 text-sm leading-relaxed text-amber-900">{copy.body}</p>
+          <p className="mt-2 text-sm font-semibold text-amber-900">
+            Tu cuenta de prueba incluye Inicio y Ajustes. Para desbloquear este modulo, contactanos y activamos el acceso premium.
+          </p>
+        </div>
+        <div className="flex shrink-0 flex-wrap gap-2">
+          <a
+            className="inline-flex items-center justify-center rounded-xl bg-[#163759] px-4 py-2 text-sm font-bold text-white hover:bg-[#0f2943]"
+            href={`mailto:soporte@energyos.com.ar?subject=${encodeURIComponent(`Quiero activar ${copy.title}`)}`}
+          >
+            Contactar
+          </a>
+          <button
+            className="inline-flex items-center justify-center rounded-xl border border-amber-300 bg-white px-4 py-2 text-sm font-bold text-amber-800 hover:bg-amber-100"
+            onClick={onClose}
+            type="button"
+          >
+            Seguir viendo inicio
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function SpotPreviewChart({ data, height = 138 }: { data: ExposicionSpotResponse; height?: number }) {
   const chartData = data.serie.slice(-6).map((p) => ({
     mes: mesLabel(p.periodo),
@@ -692,6 +736,7 @@ function ModulePreviewCard({
 export default function AppHome() {
   const { agente, ultimoMesDisponible, informe: informeFromContext } = useAppContext();
   const [isTrial, setIsTrial] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
 
   useEffect(() => {
     let active = true;
@@ -722,6 +767,7 @@ export default function AppHome() {
   const demandaMes = cliente.demandaMes;
   const spotPct = demandaMes?.mix?.spotPct ?? 0;
   const disclosure: DisclosureMode = isTrial ? "preview" : "full";
+  const premiumModuleKey = isTrial ? searchParams.get("premium") : null;
   const canLoadModulePreviews = Boolean(agente?.nemo && cliente.disponible);
 
   const spotLoader = useCallback(
@@ -919,6 +965,12 @@ export default function AppHome() {
     );
   }
 
+  const closePremiumNotice = () => {
+    const next = new URLSearchParams(searchParams);
+    next.delete("premium");
+    setSearchParams(next, { replace: true });
+  };
+
   // Skeleton del dashboard mientras carga: shell ya visible, solo placeholders.
   if (isLoading) {
     return (
@@ -962,6 +1014,10 @@ export default function AppHome() {
         <div className="mb-6">
           <AlertaBanner type="warning" message={`No se pudo cargar el informe: ${error}`} />
         </div>
+      )}
+
+      {isTrial && (
+        <PremiumUpsellNotice moduleKey={premiumModuleKey} onClose={closePremiumNotice} />
       )}
 
       {/* Advertencias del servidor */}
