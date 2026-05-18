@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   BarChart3,
+  BrainCircuit,
   Building2,
   Flame,
   History,
@@ -25,6 +26,7 @@ import { Skeleton } from "../ui/Skeleton";
 
 const appNav = [
   { to: "/app",                   label: "Inicio",                icon: Home,       exact: true  },
+  { to: "/app/analizador",        label: "EnergyOS Advisor",      icon: BrainCircuit, exact: false },
   { to: "/app/exposicion-spot",   label: "Exposición Spot",       icon: Flame,      exact: false },
   { to: "/app/cumplimiento-renovable", label: "Renovables 27.191", icon: Zap,       exact: false },
   { to: "/app/perfil-carga",      label: "Perfil de Carga",       icon: TrendingUp, exact: false },
@@ -38,6 +40,7 @@ const bottomNav = [
 ];
 
 const premiumNavKeyByPath: Record<string, PremiumModuleKey> = {
+  "/app/analizador": "analizador",
   "/app/exposicion-spot": "exposicion-spot",
   "/app/cumplimiento-renovable": "cumplimiento-renovable",
   "/app/perfil-carga": "perfil-carga",
@@ -227,6 +230,7 @@ function MobileBottomNav() {
   const [isTrial, setIsTrial] = useState(false);
   const mobileNav = [
     { to: "/app",                        label: "Inicio",   icon: Home,       exact: true  },
+    { to: "/app/analizador",             label: "Advisor",   icon: BrainCircuit, exact: false },
     { to: "/app/exposicion-spot",        label: "Spot",     icon: Flame,      exact: false },
     { to: "/app/cumplimiento-renovable", label: "27.191",   icon: Zap,        exact: false },
     { to: "/app/perfil-carga",           label: "Carga",    icon: TrendingUp, exact: false },

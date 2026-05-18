@@ -23,6 +23,7 @@ import type { PremiumModuleKey } from "./utils/trialAccess";
 // ---------------------------------------------------------------------------
 const AppOnboarding      = lazy(() => import("./pages/app/AppOnboarding"));
 const AppHome            = lazy(() => import("./pages/app/AppHome"));
+const Analizador         = lazy(() => import("./pages/app/Analizador"));
 const ModuloExposicion   = lazy(() => import("./pages/app/ModuloExposicionSpot"));
 const ModuloCumplimiento = lazy(() => import("./pages/app/ModuloCumplimiento"));
 const ModuloPerfilCarga  = lazy(() => import("./pages/app/ModuloPerfilCarga"));
@@ -154,6 +155,10 @@ export default function App() {
         <Route
           index
           element={<Suspense fallback={clientLoading}><AppHome /></Suspense>}
+        />
+        <Route
+          path="analizador"
+          element={<Suspense fallback={clientLoading}><TrialPremiumRoute moduleKey="analizador"><Analizador /></TrialPremiumRoute></Suspense>}
         />
         <Route
           path="exposicion-spot"

@@ -13,6 +13,13 @@ function assertEqual<T>(actual: T, expected: T, message: string) {
 assertEqual(isTrialAllowedAppPath("/app"), true, "trial can access home");
 assertEqual(isTrialAllowedAppPath("/app/ajustes"), true, "trial can access settings");
 assertEqual(isTrialAllowedAppPath("/app/mercado"), false, "trial cannot access premium modules");
+assertEqual(isTrialAllowedAppPath("/app/analizador"), false, "trial cannot access analyzer directly");
+
+assertEqual(
+  premiumRedirectForTrial("/app/analizador"),
+  "/app?premium=analizador",
+  "analyzer route should redirect trial users to home with upsell key",
+);
 
 assertEqual(
   premiumRedirectForTrial("/app/mercado"),

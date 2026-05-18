@@ -1,4 +1,5 @@
 export type PremiumModuleKey =
+  | "analizador"
   | "exposicion-spot"
   | "cumplimiento-renovable"
   | "perfil-carga"
@@ -13,6 +14,11 @@ export type PremiumModuleCopy = {
 };
 
 const premiumModuleCopy: Record<PremiumModuleKey, PremiumModuleCopy> = {
+  analizador: {
+    title: "EnergyOS Advisor",
+    eyebrow: "Capa premium",
+    body: "El agente experto interpreta modulos, contratos y Data Room autorizado para detectar problemas, priorizar acciones y sostener decisiones con evidencia tecnica.",
+  },
   "exposicion-spot": {
     title: "Exposicion Spot y Cobertura",
     eyebrow: "Modulo premium",
