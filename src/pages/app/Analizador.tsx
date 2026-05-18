@@ -309,7 +309,7 @@ function formatReconcile(data: AgentReconcileInvoiceOutput) {
 }
 
 function formatAsk(data: AgentAskOutput) {
-  return data.answer ?? data.summary ?? shortValue(data) ?? "Respuesta recibida.";
+  return data.answer ?? data.response ?? data.summary ?? shortValue(data) ?? "Respuesta recibida.";
 }
 
 function MessageBubble({ message }: { message: AdvisorMessage }) {

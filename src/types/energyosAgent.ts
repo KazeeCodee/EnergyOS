@@ -115,6 +115,7 @@ export type AgentReportOutput = {
 
 export type AgentAskOutput = {
   answer?: string;
+  response?: string;
   summary?: string;
   findings?: AgentFinding[];
   recommendations?: AgentRecommendation[];
