@@ -217,6 +217,34 @@ function shortValue(value: unknown): string {
   }
 }
 
+function readTextField(value: unknown): string | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  for (const key of ["answer", "response", "summary", "message"]) {
+    const field = record[key];
+    if (typeof field === "string" && field.trim()) return field;
+  }
+  return null;
+}
+
+function normalizeAgentText(value: unknown): string {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return "";
+    if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+      try {
+        const parsed = JSON.parse(trimmed) as unknown;
+        return readTextField(parsed) ?? trimmed;
+      } catch {
+        return trimmed;
+      }
+    }
+    return trimmed;
+  }
+
+  return readTextField(value) ?? shortValue(value);
+}
+
 function prettyJson(value: unknown) {
   try {
     return JSON.stringify(value, null, 2);
@@ -309,7 +337,7 @@ function formatReconcile(data: AgentReconcileInvoiceOutput) {
 }
 
 function formatAsk(data: AgentAskOutput) {
-  return data.answer ?? data.response ?? data.summary ?? shortValue(data) ?? "Respuesta recibida.";
+  return normalizeAgentText(data) || "Respuesta recibida.";
 }
 
 function MessageBubble({ message }: { message: AdvisorMessage }) {
@@ -479,6 +507,7 @@ export default function Analizador() {
     files,
     request,
     format,
+    showMeta,
   }: {
     conversationId: string;
     loading: string;
@@ -486,6 +515,7 @@ export default function Analizador() {
     files?: AgentFile[];
     request: () => Promise<T>;
     format: (data: T) => string;
+    showMeta?: boolean;
   }) {
     const userMessage: AdvisorMessage = {
       id: newId("msg"),
@@ -513,13 +543,14 @@ export default function Analizador() {
     setLoadingLabel(loading);
     try {
       const response = await request();
+      const formatted = format(response);
       appendMessages(conversationId, [
         {
           id: newId("msg"),
           role: "assistant",
-          content: format(response),
+          content: formatted,
           createdAt: nowIso(),
-          meta: response,
+          meta: showMeta === false ? undefined : response,
         },
       ]);
     } catch (error) {
@@ -554,6 +585,7 @@ export default function Analizador() {
       files: filesToUpload,
       request: () => askEnergyAgent({ ...agentRequest!, question: question || "Analiza los archivos adjuntos", files: filesToUpload }),
       format: formatAsk,
+      showMeta: false,
     });
   }
 
