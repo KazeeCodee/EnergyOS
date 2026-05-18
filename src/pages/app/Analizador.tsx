@@ -446,11 +446,12 @@ export default function Analizador() {
     if (!agente?.id || !agente.nemo || !ultimoMesDisponible) return null;
     return {
       companyId: agente.id,
+      companyName,
       nemo: agente.nemo,
       period: ultimoMesDisponible,
       includePrivateContext: true,
     };
-  }, [agente?.id, agente?.nemo, ultimoMesDisponible]);
+  }, [agente?.id, agente?.nemo, companyName, ultimoMesDisponible]);
 
   const canCallAgent = Boolean(agentRequest && agentConfigured);
   const activeConversation = conversations.find((item) => item.id === activeConversationId) ?? conversations[0] ?? null;

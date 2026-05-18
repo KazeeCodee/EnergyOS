@@ -6,6 +6,7 @@ export type AgentConfidence = "low" | "medium" | "high";
 
 export type AgentBaseRequest = {
   companyId: string;
+  companyName?: string;
   nemo: string;
   period: string;
   includePrivateContext?: boolean;
