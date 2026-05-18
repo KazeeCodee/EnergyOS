@@ -346,10 +346,17 @@ function formatAsk(data: AgentAskOutput) {
 function readAdvisorRun(meta: unknown): AgentAdvisorRunOutput | null {
   if (!meta || typeof meta !== "object") return null;
   const record = meta as Record<string, unknown>;
+  if (record.intent === "greeting") return null;
   const advisor = record.advisor;
   if (advisor && typeof advisor === "object" && "metrics" in advisor) return advisor as AgentAdvisorRunOutput;
   if ("metrics" in record && "intent" in record) return record as AgentAdvisorRunOutput;
   return null;
+}
+
+function shouldStoreAgentMeta(value: unknown): boolean {
+  if (!value || typeof value !== "object") return true;
+  const record = value as Record<string, unknown>;
+  return record.intent !== "greeting";
 }
 
 function formatMetricNumber(value: number | null | undefined, suffix = "") {
@@ -664,7 +671,7 @@ export default function Analizador() {
           role: "assistant",
           content: formatted,
           createdAt: nowIso(),
-          meta: showMeta === false ? undefined : response,
+          meta: showMeta === false || !shouldStoreAgentMeta(response) ? undefined : response,
         },
       ]);
     } catch (error) {
