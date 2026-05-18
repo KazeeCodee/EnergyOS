@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import mermaid from "mermaid";
 import {
   BrainCircuit,
   ClipboardList,
@@ -7,11 +10,14 @@ import {
   MessageSquarePlus,
   PanelRightClose,
   PanelRightOpen,
+  Paperclip,
   ReceiptText,
   RefreshCw,
   SearchCheck,
   Send,
   Sparkles,
+  X,
+  File,
 } from "lucide-react";
 import { useAppContext } from "../../context/AppContext";
 import {
@@ -30,6 +36,7 @@ import type {
   AgentBaseRequest,
   AgentReconcileInvoiceOutput,
   AgentReportOutput,
+  AgentFile,
 } from "../../types/energyosAgent";
 
 type AdvisorMessage = {
@@ -39,6 +46,7 @@ type AdvisorMessage = {
   createdAt: string;
   meta?: unknown;
   status?: "error";
+  files?: AgentFile[];
 };
 
 type AdvisorConversation = {
@@ -93,6 +101,44 @@ const ACTIONS: Array<{
     icon: ReceiptText,
   },
 ];
+
+mermaid.initialize({
+  startOnLoad: false,
+  theme: "base",
+  securityLevel: "loose",
+  themeVariables: {
+    fontFamily: "inherit",
+    primaryColor: "#f8fafc",
+    primaryTextColor: "#163759",
+    primaryBorderColor: "#cbd5e1",
+    lineColor: "#94a3b8",
+    secondaryColor: "#15caca",
+    tertiaryColor: "#fff",
+  },
+});
+
+function MermaidChart({ code }: { code: string }) {
+  const [svg, setSvg] = useState<string>("");
+
+  useEffect(() => {
+    let isMounted = true;
+    const id = `mermaid-${Math.random().toString(36).substr(2, 9)}`;
+    mermaid
+      .render(id, code)
+      .then((res) => {
+        if (isMounted) setSvg(res.svg);
+      })
+      .catch((e) => {
+        console.error(e);
+        if (isMounted) setSvg('<div class="text-red-500 text-xs">Error renderizando diagrama</div>');
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, [code]);
+
+  return <div dangerouslySetInnerHTML={{ __html: svg }} className="my-4 flex justify-center overflow-x-auto" />;
+}
 
 function nowIso() {
   return new Date().toISOString();
@@ -280,7 +326,65 @@ function MessageBubble({ message }: { message: AdvisorMessage }) {
               : "border border-slate-200 bg-white text-slate-800"
         }`}
       >
-        <div className="whitespace-pre-line">{message.content}</div>
+        {message.files && message.files.length > 0 && (
+          <div className="mb-3 flex flex-wrap gap-2">
+            {message.files.map((file, idx) => (
+              <div key={idx} className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-xs ${isUser ? 'border-white/20 bg-white/10 text-white' : 'border-slate-200 bg-slate-50 text-slate-700'}`}>
+                <File size={14} />
+                <span className="max-w-[150px] truncate font-medium">{file.name}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="break-words">
+          {isUser ? (
+            <div className="whitespace-pre-wrap">{message.content}</div>
+          ) : (
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={{
+                pre({ children }) {
+                  return (
+                    <pre className="my-2 overflow-x-auto rounded-lg bg-[#163759] p-3 text-xs font-mono text-slate-50">
+                      {children}
+                    </pre>
+                  );
+                },
+                code(props: any) {
+                  const { children, className, node, ...rest } = props;
+                  const match = /language-(\w+)/.exec(className || "");
+                  if (match && match[1] === "mermaid") {
+                    return <MermaidChart code={String(children).replace(/\n$/, "")} />;
+                  }
+                  return (
+                    <code className={className ? className : "rounded bg-black/10 px-1.5 py-0.5 font-mono text-[13px]"} {...rest}>
+                      {children}
+                    </code>
+                  );
+                },
+                table: ({ node, ...props }) => (
+                  <div className="my-4 overflow-x-auto rounded-xl border border-slate-200">
+                    <table className="w-full border-collapse text-left text-sm" {...props} />
+                  </div>
+                ),
+                thead: ({ node, ...props }) => <thead className="bg-slate-50 text-slate-700" {...props} />,
+                th: ({ node, ...props }) => <th className="border-b border-slate-200 px-4 py-3 font-semibold" {...props} />,
+                td: ({ node, ...props }) => <td className="border-b border-slate-200 px-4 py-3 last:border-b-0" {...props} />,
+                a: ({ node, ...props }) => (
+                  <a className="text-[#15caca] hover:underline" target="_blank" rel="noopener noreferrer" {...props} />
+                ),
+                ul: ({ node, ...props }) => <ul className="my-2 list-disc space-y-1 pl-5" {...props} />,
+                ol: ({ node, ...props }) => <ol className="my-2 list-decimal space-y-1 pl-5" {...props} />,
+                h1: ({ node, ...props }) => <h1 className="mb-2 mt-4 text-xl font-bold" {...props} />,
+                h2: ({ node, ...props }) => <h2 className="mb-2 mt-4 text-lg font-bold" {...props} />,
+                h3: ({ node, ...props }) => <h3 className="mb-2 mt-3 text-base font-bold" {...props} />,
+                p: ({ node, ...props }) => <p className="mb-2 last:mb-0" {...props} />,
+              }}
+            >
+              {message.content}
+            </ReactMarkdown>
+          )}
+        </div>
         {message.meta ? (
           <details className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
             <summary className="cursor-pointer font-semibold text-slate-500">Ver datos</summary>
@@ -301,7 +405,9 @@ export default function Analizador() {
   const [loadingLabel, setLoadingLabel] = useState<string | null>(null);
   const [activeConversationId, setActiveConversationId] = useState<string>("");
   const [conversations, setConversations] = useState<AdvisorConversation[]>([]);
+  const [selectedFiles, setSelectedFiles] = useState<AgentFile[]>([]);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const companyName = agente?.descripcion ?? "";
   const nemo = agente?.nemo ?? "";
@@ -360,22 +466,24 @@ export default function Analizador() {
   }
 
   function readinessMessage() {
-    if (!agente) return "No hay agente seleccionado.";
-    if (!ultimoMesDisponible) return "No hay periodo disponible.";
-    if (!agentConfigured) return "El asistente no esta disponible en este momento.";
-    return "El asistente no esta disponible en este momento.";
+    if (!agente) return "No hay agente seleccionado. Verifica que tengas una empresa asignada.";
+    if (!ultimoMesDisponible) return "No hay periodo disponible para este agente.";
+    if (!agentConfigured) return "El agente no esta configurado. Revisa la variable VITE_ENERGYOS_AGENT_URL.";
+    return "El agente no puede procesar la solicitud en este momento.";
   }
 
   async function runRequest<T>({
     conversationId,
     loading,
     prompt,
+    files,
     request,
     format,
   }: {
     conversationId: string;
     loading: string;
     prompt: string;
+    files?: AgentFile[];
     request: () => Promise<T>;
     format: (data: T) => string;
   }) {
@@ -384,6 +492,7 @@ export default function Analizador() {
       role: "user",
       content: prompt,
       createdAt: nowIso(),
+      files,
     };
 
     appendMessages(conversationId, [userMessage], prompt);
@@ -431,16 +540,54 @@ export default function Analizador() {
   async function submitQuestion(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const question = input.trim();
-    if (!question || !activeConversation) return;
+    if (!question && selectedFiles.length === 0) return;
+    if (!activeConversation) return;
+    
     setInput("");
+    const filesToUpload = [...selectedFiles];
+    setSelectedFiles([]);
 
     await runRequest({
       conversationId: activeConversation.id,
       loading: "Pensando...",
-      prompt: question,
-      request: () => askEnergyAgent({ ...agentRequest!, question }),
+      prompt: question || "Adjunto archivo(s)",
+      files: filesToUpload,
+      request: () => askEnergyAgent({ ...agentRequest!, question: question || "Analiza los archivos adjuntos", files: filesToUpload }),
       format: formatAsk,
     });
+  }
+
+  async function handleFileSelect(event: React.ChangeEvent<HTMLInputElement>) {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+
+    const newFiles: AgentFile[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      if (file.size > 5 * 1024 * 1024) {
+        alert(`El archivo ${file.name} es muy grande. El límite es 5MB.`);
+        continue;
+      }
+      
+      const content = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const base64 = (reader.result as string).split(",")[1];
+          resolve(base64);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+
+      newFiles.push({
+        name: file.name,
+        type: file.type || "application/octet-stream",
+        content,
+      });
+    }
+
+    setSelectedFiles((prev) => [...prev, ...newFiles]);
+    if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
   async function runAction(action: AgentAction) {
@@ -573,30 +720,64 @@ export default function Analizador() {
               ) : null}
 
               <form
-                className="flex items-end gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-2 shadow-sm focus-within:border-[#15caca] focus-within:ring-2 focus-within:ring-[#15caca]/15"
+                className="flex flex-col gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-2 shadow-sm focus-within:border-[#15caca] focus-within:ring-2 focus-within:ring-[#15caca]/15"
                 onSubmit={submitQuestion}
               >
-                <textarea
-                  className="max-h-40 min-h-11 flex-1 resize-none bg-transparent px-2 py-2 text-sm text-[#163759] outline-none placeholder:text-slate-400"
-                  disabled={Boolean(loadingLabel)}
-                  onChange={(event) => setInput(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" && !event.shiftKey) {
-                      event.preventDefault();
-                      event.currentTarget.form?.requestSubmit();
-                    }
-                  }}
-                  placeholder="Preguntale algo al Advisor..."
-                  value={input}
-                />
-                <button
-                  aria-label="Enviar"
-                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#15caca] text-white transition hover:bg-[#0e8a8a] disabled:cursor-not-allowed disabled:opacity-50"
-                  disabled={Boolean(loadingLabel) || input.trim().length === 0}
-                  type="submit"
-                >
-                  {loadingLabel ? <Loader2 className="animate-spin" size={17} /> : <Send size={17} />}
-                </button>
+                {selectedFiles.length > 0 && (
+                  <div className="flex flex-wrap gap-2 px-2 pt-1">
+                    {selectedFiles.map((file, index) => (
+                      <div key={index} className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 shadow-sm">
+                        <File size={13} className="text-[#15caca]" />
+                        <span className="max-w-[120px] truncate font-medium">{file.name}</span>
+                        <button
+                          type="button"
+                          className="ml-1 rounded-full p-0.5 text-slate-400 hover:bg-slate-100 hover:text-red-500"
+                          onClick={() => setSelectedFiles(prev => prev.filter((_, i) => i !== index))}
+                        >
+                          <X size={13} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="flex items-end gap-2">
+                  <input
+                    type="file"
+                    multiple
+                    className="hidden"
+                    ref={fileInputRef}
+                    onChange={handleFileSelect}
+                  />
+                  <button
+                    type="button"
+                    aria-label="Adjuntar archivo"
+                    className="mb-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-slate-400 transition hover:bg-slate-200 hover:text-slate-600"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <Paperclip size={18} />
+                  </button>
+                  <textarea
+                    className="max-h-40 min-h-11 flex-1 resize-none bg-transparent px-2 py-2 text-sm text-[#163759] outline-none placeholder:text-slate-400"
+                    disabled={Boolean(loadingLabel)}
+                    onChange={(event) => setInput(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" && !event.shiftKey) {
+                        event.preventDefault();
+                        event.currentTarget.form?.requestSubmit();
+                      }
+                    }}
+                    placeholder="Preguntale algo al Advisor..."
+                    value={input}
+                  />
+                  <button
+                    aria-label="Enviar"
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#15caca] text-white transition hover:bg-[#0e8a8a] disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={Boolean(loadingLabel) || (input.trim().length === 0 && selectedFiles.length === 0)}
+                    type="submit"
+                  >
+                    {loadingLabel ? <Loader2 className="animate-spin" size={17} /> : <Send size={17} />}
+                  </button>
+                </div>
               </form>
             </div>
           </footer>

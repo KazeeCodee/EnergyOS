@@ -27,6 +27,7 @@ import { Skeleton } from "../ui/Skeleton";
 const appNav = [
   { to: "/app",                   label: "Inicio",                icon: Home,       exact: true  },
   { to: "/app/analizador",        label: "EnergyOS Advisor",      icon: BrainCircuit, exact: false },
+  { to: "/app/empresa",           label: "Mi empresa",            icon: Building2,  exact: false },
   { to: "/app/exposicion-spot",   label: "Exposición Spot",       icon: Flame,      exact: false },
   { to: "/app/cumplimiento-renovable", label: "Renovables 27.191", icon: Zap,       exact: false },
   { to: "/app/perfil-carga",      label: "Perfil de Carga",       icon: TrendingUp, exact: false },
@@ -231,6 +232,7 @@ function MobileBottomNav() {
   const mobileNav = [
     { to: "/app",                        label: "Inicio",   icon: Home,       exact: true  },
     { to: "/app/analizador",             label: "Advisor",   icon: BrainCircuit, exact: false },
+    { to: "/app/empresa",                label: "Empresa",  icon: Building2,  exact: false },
     { to: "/app/exposicion-spot",        label: "Spot",     icon: Flame,      exact: false },
     { to: "/app/cumplimiento-renovable", label: "27.191",   icon: Zap,        exact: false },
     { to: "/app/perfil-carga",           label: "Carga",    icon: TrendingUp, exact: false },

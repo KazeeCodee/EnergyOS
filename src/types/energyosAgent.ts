@@ -11,8 +11,15 @@ export type AgentBaseRequest = {
   includePrivateContext?: boolean;
 };
 
+export type AgentFile = {
+  name: string;
+  type: string;
+  content: string;
+};
+
 export type AgentQuestionRequest = AgentBaseRequest & {
   question: string;
+  files?: AgentFile[];
 };
 
 export type AgentFinding = {
