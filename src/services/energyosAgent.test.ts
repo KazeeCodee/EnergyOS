@@ -26,6 +26,12 @@ assertEqual(
 );
 
 assertEqual(
+  buildAgentEndpoint("http://localhost:3100/", "/advisor/tasks/approve"),
+  "http://localhost:3100/advisor/tasks/approve",
+  "advisor task endpoint builder should support v2 routes",
+);
+
+assertEqual(
   buildAgentHeaders("abc.def.ghi").Authorization,
   "Bearer abc.def.ghi",
   "agent headers should include Supabase JWT as Bearer token",

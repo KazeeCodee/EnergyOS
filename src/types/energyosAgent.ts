@@ -43,6 +43,51 @@ export type AgentRecommendation = {
   status?: string;
 };
 
+export type AgentAdvisorMetrics = {
+  totalConsumptionMwh?: number | null;
+  spotMwh?: number | null;
+  spotExposurePct?: number | null;
+  contractCoveragePct?: number | null;
+  invoiceTotalPesos?: number | null;
+  costDtePesosMwh?: number | null;
+  renewableYtdPct?: number | null;
+  riskScore?: number | null;
+};
+
+export type AgentFileAnalysis = {
+  name: string;
+  type: string;
+  kind: string;
+  status: "extracted" | "requires_ai_extraction" | "failed" | string;
+  textPreview?: string;
+  limitations?: string[];
+  aiExtraction?: {
+    summary?: string;
+    fields?: Record<string, unknown>;
+    confidence?: string;
+  };
+};
+
+export type AgentAdvisorRunOutput = {
+  response: string;
+  intent: string;
+  nemo: string;
+  period: string | null;
+  metrics?: AgentAdvisorMetrics;
+  findings?: AgentFinding[];
+  recommendations?: AgentRecommendation[];
+  missingData?: string[];
+  limitations?: string[];
+  dataUsed?: string[];
+  evidence?: Record<string, unknown>[];
+  filesReceived?: AgentFile[];
+  fileAnalyses?: AgentFileAnalysis[];
+  qa?: {
+    passed: boolean;
+    issues: string[];
+  };
+};
+
 export type AgentPrivateContextSummary = {
   nemo: string;
   completenessPct: number;
@@ -118,12 +163,33 @@ export type AgentAskOutput = {
   answer?: string;
   response?: string;
   summary?: string;
+  advisor?: AgentAdvisorRunOutput;
   findings?: AgentFinding[];
   recommendations?: AgentRecommendation[];
   missingData?: string[];
   limitations?: string[];
   evidence?: Record<string, unknown>[];
   [key: string]: unknown;
+};
+
+export type AgentApproveTaskInput = {
+  nemo: string;
+  recommendationId: string;
+  title: string;
+  reason?: string;
+  ownerEmail?: string;
+  dueDate?: string;
+  relatedEntityType?: string;
+  relatedEntityId?: string;
+};
+
+export type AgentApproveTaskOutput = {
+  task: {
+    id: string;
+    nemo: string;
+    title: string;
+    status: string;
+  };
 };
 
 export type AgentReconcileInvoiceOutput = {

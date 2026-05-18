@@ -3,6 +3,8 @@ import type {
   AgentAnalysisOutput,
   AgentAskOutput,
   AgentBaseRequest,
+  AgentApproveTaskInput,
+  AgentApproveTaskOutput,
   AgentQuestionRequest,
   AgentReconcileInvoiceOutput,
   AgentReportOutput,
@@ -13,7 +15,8 @@ type AgentEndpoint =
   | "/agent/ask"
   | "/agent/generate-report"
   | "/agent/generate-action-plan"
-  | "/agent/reconcile-invoice";
+  | "/agent/reconcile-invoice"
+  | "/advisor/tasks/approve";
 
 type AgentImportMeta = ImportMeta & {
   env?: {
@@ -189,4 +192,8 @@ export function generateAgentActionPlan(input: AgentBaseRequest): Promise<AgentA
 
 export function reconcileInvoice(input: AgentBaseRequest): Promise<AgentReconcileInvoiceOutput> {
   return requestAgent<AgentReconcileInvoiceOutput>("/agent/reconcile-invoice", withPrivateContext(input));
+}
+
+export function approveAdvisorTask(input: AgentApproveTaskInput): Promise<AgentApproveTaskOutput> {
+  return requestAgent<AgentApproveTaskOutput>("/advisor/tasks/approve", input);
 }

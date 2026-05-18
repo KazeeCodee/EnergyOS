@@ -23,6 +23,7 @@ import { useAppContext } from "../../context/AppContext";
 import {
   EnergyosAgentError,
   analyzePeriodWithAgent,
+  approveAdvisorTask,
   askEnergyAgent,
   generateAgentActionPlan,
   generateAgentReport,
@@ -32,11 +33,13 @@ import {
 import type {
   AgentActionPlanOutput,
   AgentAnalysisOutput,
+  AgentAdvisorRunOutput,
   AgentAskOutput,
   AgentBaseRequest,
   AgentReconcileInvoiceOutput,
   AgentReportOutput,
   AgentFile,
+  AgentRecommendation,
 } from "../../types/energyosAgent";
 
 type AdvisorMessage = {
@@ -340,8 +343,114 @@ function formatAsk(data: AgentAskOutput) {
   return normalizeAgentText(data) || "Respuesta recibida.";
 }
 
-function MessageBubble({ message }: { message: AdvisorMessage }) {
+function readAdvisorRun(meta: unknown): AgentAdvisorRunOutput | null {
+  if (!meta || typeof meta !== "object") return null;
+  const record = meta as Record<string, unknown>;
+  const advisor = record.advisor;
+  if (advisor && typeof advisor === "object" && "metrics" in advisor) return advisor as AgentAdvisorRunOutput;
+  if ("metrics" in record && "intent" in record) return record as AgentAdvisorRunOutput;
+  return null;
+}
+
+function formatMetricNumber(value: number | null | undefined, suffix = "") {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "s/d";
+  return `${new Intl.NumberFormat("es-AR", { maximumFractionDigits: 2 }).format(value)}${suffix}`;
+}
+
+function formatMetricPct(value: number | null | undefined) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "s/d";
+  return `${(value * 100).toFixed(1)}%`;
+}
+
+function AdvisorEvidencePanel({
+  advisor,
+  onApproveTask,
+  approvingId,
+}: {
+  advisor: AgentAdvisorRunOutput;
+  onApproveTask: (recommendation: AgentRecommendation) => void;
+  approvingId: string | null;
+}) {
+  const metrics = advisor.metrics ?? {};
+  const metricItems = [
+    ["Demanda", formatMetricNumber(metrics.totalConsumptionMwh, " MWh")],
+    ["Spot", formatMetricPct(metrics.spotExposurePct)],
+    ["Cobertura", formatMetricPct(metrics.contractCoveragePct)],
+    ["DTE", `ARS ${formatMetricNumber(metrics.invoiceTotalPesos)}`],
+    ["Costo/MWh", `ARS ${formatMetricNumber(metrics.costDtePesosMwh)}`],
+    ["Riesgo", formatMetricNumber(metrics.riskScore)],
+  ];
+
+  return (
+    <div className="mt-3 space-y-3 rounded-xl border border-slate-200 bg-slate-50/80 p-3 text-xs text-slate-700">
+      <div className="grid gap-2 sm:grid-cols-3">
+        {metricItems.map(([label, value]) => (
+          <div key={label} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{label}</div>
+            <div className="mt-1 font-mono text-[13px] font-semibold text-[#163759]">{value}</div>
+          </div>
+        ))}
+      </div>
+
+      {advisor.fileAnalyses && advisor.fileAnalyses.length > 0 ? (
+        <div className="space-y-1">
+          <div className="font-semibold text-slate-500">Archivos</div>
+          {advisor.fileAnalyses.slice(0, 4).map((file) => (
+            <div key={`${file.name}-${file.kind}`} className="flex items-center justify-between gap-2 rounded-lg bg-white px-3 py-2">
+              <span className="truncate">{file.name}</span>
+              <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 font-semibold text-slate-500">{file.status}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {advisor.recommendations && advisor.recommendations.length > 0 ? (
+        <div className="space-y-2">
+          <div className="font-semibold text-slate-500">Acciones</div>
+          {advisor.recommendations.slice(0, 3).map((recommendation) => {
+            const id = recommendation.id ?? recommendation.action;
+            return (
+              <div key={id} className="rounded-lg border border-slate-200 bg-white p-3">
+                <div className="font-semibold text-[#163759]">{recommendation.action}</div>
+                {recommendation.reason ? <div className="mt-1 text-slate-500">{recommendation.reason}</div> : null}
+                <button
+                  className="mt-2 inline-flex items-center gap-2 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition hover:border-[#15caca] hover:text-[#163759] disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={approvingId === id}
+                  onClick={() => onApproveTask(recommendation)}
+                  type="button"
+                >
+                  <ClipboardList size={13} />
+                  {approvingId === id ? "Creando..." : "Crear tarea"}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+
+      <div className="flex flex-wrap gap-2 text-[11px] text-slate-500">
+        <span className={advisor.qa?.passed ? "text-emerald-700" : "text-amber-700"}>
+          QA {advisor.qa?.passed ? "validado" : "revisado"}
+        </span>
+        {advisor.dataUsed?.slice(0, 3).map((item) => (
+          <span key={item} className="rounded-full bg-white px-2 py-1">{item}</span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function MessageBubble({
+  message,
+  onApproveTask,
+  approvingId,
+}: {
+  message: AdvisorMessage;
+  onApproveTask: (recommendation: AgentRecommendation) => void;
+  approvingId: string | null;
+}) {
   const isUser = message.role === "user";
+  const advisor = readAdvisorRun(message.meta);
 
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
@@ -413,6 +522,9 @@ function MessageBubble({ message }: { message: AdvisorMessage }) {
             </ReactMarkdown>
           )}
         </div>
+        {!isUser && advisor ? (
+          <AdvisorEvidencePanel advisor={advisor} onApproveTask={onApproveTask} approvingId={approvingId} />
+        ) : null}
         {message.meta ? (
           <details className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
             <summary className="cursor-pointer font-semibold text-slate-500">Ver datos</summary>
@@ -434,6 +546,7 @@ export default function Analizador() {
   const [activeConversationId, setActiveConversationId] = useState<string>("");
   const [conversations, setConversations] = useState<AdvisorConversation[]>([]);
   const [selectedFiles, setSelectedFiles] = useState<AgentFile[]>([]);
+  const [approvingRecommendationId, setApprovingRecommendationId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -586,8 +699,43 @@ export default function Analizador() {
       files: filesToUpload,
       request: () => askEnergyAgent({ ...agentRequest!, question: question || "Analiza los archivos adjuntos", files: filesToUpload }),
       format: formatAsk,
-      showMeta: false,
     });
+  }
+
+  async function approveRecommendationAsTask(recommendation: AgentRecommendation) {
+    if (!agentRequest) return;
+    const recommendationId = recommendation.id ?? recommendation.action;
+    setApprovingRecommendationId(recommendationId);
+    try {
+      const result = await approveAdvisorTask({
+        nemo: agentRequest.nemo,
+        recommendationId,
+        title: recommendation.action,
+        reason: recommendation.reason,
+        relatedEntityType: "recommendation",
+      });
+      if (activeConversation) {
+        appendMessages(activeConversation.id, [{
+          id: newId("msg"),
+          role: "assistant",
+          content: `Tarea creada: ${result.task.title}`,
+          createdAt: nowIso(),
+          meta: result,
+        }]);
+      }
+    } catch (error) {
+      if (activeConversation) {
+        appendMessages(activeConversation.id, [{
+          id: newId("msg"),
+          role: "assistant",
+          content: agentErrorMessage(error),
+          createdAt: nowIso(),
+          status: "error",
+        }]);
+      }
+    } finally {
+      setApprovingRecommendationId(null);
+    }
   }
 
   async function handleFileSelect(event: React.ChangeEvent<HTMLInputElement>) {
@@ -700,7 +848,12 @@ export default function Analizador() {
           <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6">
             <div className="mx-auto flex max-w-3xl flex-col gap-4">
               {activeConversation?.messages.map((message) => (
-                <MessageBubble key={message.id} message={message} />
+                <MessageBubble
+                  approvingId={approvingRecommendationId}
+                  key={message.id}
+                  message={message}
+                  onApproveTask={approveRecommendationAsTask}
+                />
               ))}
 
               {loadingLabel ? (
