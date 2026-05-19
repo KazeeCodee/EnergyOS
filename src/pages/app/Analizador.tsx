@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import mermaid from "mermaid";
 import {
+  Archive,
   BrainCircuit,
   ClipboardList,
+  Database,
   FileText,
   Loader2,
   MessageSquarePlus,
@@ -16,29 +18,31 @@ import {
   SearchCheck,
   Send,
   Sparkles,
+  Trash2,
   X,
   File,
 } from "lucide-react";
 import { useAppContext } from "../../context/AppContext";
 import {
   EnergyosAgentError,
-  analyzePeriodWithAgent,
+  archiveAdvisorMemory,
   approveAdvisorTask,
   askEnergyAgent,
-  generateAgentActionPlan,
-  generateAgentReport,
+  createAdvisorConversation,
+  deleteAdvisorMemory,
+  getAdvisorConversationMessages,
   hasEnergyosAgentConfig,
-  reconcileInvoice,
+  listAdvisorConversations,
+  listAdvisorMemory,
 } from "../../services/energyosAgent";
 import type {
-  AgentActionPlanOutput,
-  AgentAnalysisOutput,
   AgentAdvisorRunOutput,
   AgentAskOutput,
   AgentBaseRequest,
-  AgentReconcileInvoiceOutput,
-  AgentReportOutput,
+  AgentConversation,
   AgentFile,
+  AgentMemoryItem,
+  AgentMessage,
   AgentRecommendation,
 } from "../../types/energyosAgent";
 
@@ -57,6 +61,8 @@ type AdvisorConversation = {
   title: string;
   createdAt: string;
   updatedAt: string;
+  summary?: string | null;
+  messagesLoaded?: boolean;
   messages: AdvisorMessage[];
 };
 
@@ -256,89 +262,6 @@ function prettyJson(value: unknown) {
   }
 }
 
-function formatAnalysis(data: AgentAnalysisOutput) {
-  const lines = [
-    data.executiveSummary || "Analisis recibido.",
-    "",
-    `Estado: ${data.overallStatus} | Riesgo: ${data.riskLevel} | Confianza: ${data.confidence}`,
-  ];
-
-  if (data.privateContextUsed === false) {
-    lines.push("Data Room: no usado en esta respuesta.");
-  } else if (data.privateContextUsed === true) {
-    lines.push("Data Room: usado.");
-  }
-
-  if (data.findings?.length) {
-    lines.push("", "Hallazgos principales:");
-    data.findings.slice(0, 4).forEach((finding) => {
-      lines.push(`- ${finding.title} (${finding.severity})`);
-    });
-  }
-
-  if (data.recommendations?.length) {
-    lines.push("", "Acciones sugeridas:");
-    data.recommendations.slice(0, 4).forEach((item) => {
-      lines.push(`- ${item.action}`);
-    });
-  }
-
-  if (data.missingData?.length) {
-    lines.push("", `Datos faltantes: ${data.missingData.slice(0, 5).join(", ")}`);
-  }
-
-  return lines.join("\n");
-}
-
-function formatActionPlan(data: AgentActionPlanOutput) {
-  const tasks = data.tasks ?? data.proposedTasks ?? [];
-  const lines = [data.summary ?? "Plan de accion generado.", "", "No crea tareas automaticamente todavia."];
-
-  if (tasks.length) {
-    lines.push("", "Tareas propuestas:");
-    tasks.slice(0, 6).forEach((task, index) => {
-      const title = task.title ?? task.task ?? `Tarea ${index + 1}`;
-      const owner = task.suggestedOwner ?? task.owner ?? "responsable faltante";
-      const date = task.suggestedDate ?? task.dueDate ?? "fecha no informada";
-      lines.push(`- ${title} | ${task.priority ?? "sin prioridad"} | ${owner} | ${date}`);
-    });
-  }
-
-  return lines.join("\n");
-}
-
-function formatReport(data: AgentReportOutput) {
-  const summary = data.summary ?? data.executiveSummary ?? "Reporte generado.";
-  const lines = [summary];
-
-  if (data.dataUsed?.length) {
-    lines.push("", `Datos usados: ${data.dataUsed.join(", ")}`);
-  }
-
-  if (data.limitations?.length) {
-    lines.push("", `Limitaciones: ${data.limitations.join(", ")}`);
-  }
-
-  return lines.join("\n");
-}
-
-function formatReconcile(data: AgentReconcileInvoiceOutput) {
-  const lines = [
-    data.summary ?? "Resultado de conciliacion recibido.",
-    data.status ? `Estado: ${data.status}` : "",
-  ].filter(Boolean);
-
-  if (data.missingData?.length) {
-    lines.push("", `Datos faltantes: ${data.missingData.join(", ")}`);
-  }
-
-  if (data.limitations?.length) {
-    lines.push("", `Limitaciones: ${data.limitations.join(", ")}`);
-  }
-
-  return lines.join("\n");
-}
-
 function formatAsk(data: AgentAskOutput) {
   return normalizeAgentText(data) || "Respuesta recibida.";
 }
@@ -357,6 +280,53 @@ function shouldStoreAgentMeta(value: unknown): boolean {
   if (!value || typeof value !== "object") return true;
   const record = value as Record<string, unknown>;
   return record.intent !== "greeting" && record.intent !== "conversation";
+}
+
+function hasRecordValues(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && Object.keys(value as Record<string, unknown>).length > 0);
+}
+
+function mapAgentConversation(conversation: AgentConversation): AdvisorConversation {
+  return {
+    id: conversation.id,
+    title: conversation.title,
+    createdAt: conversation.createdAt,
+    updatedAt: conversation.updatedAt,
+    summary: conversation.summary,
+    messagesLoaded: false,
+    messages: [],
+  };
+}
+
+function mapAgentMessage(message: AgentMessage): AdvisorMessage {
+  const metadata = hasRecordValues(message.metadata) && shouldStoreAgentMeta(message.metadata)
+    ? message.metadata
+    : undefined;
+
+  return {
+    id: message.id,
+    role: message.role === "user" ? "user" : "assistant",
+    content: message.content,
+    createdAt: message.createdAt,
+    meta: metadata,
+  };
+}
+
+function readResponseId(value: unknown, key: "conversationId" | "messageId" | "assistantMessageId"): string | null {
+  if (!value || typeof value !== "object") return null;
+  const field = (value as Record<string, unknown>)[key];
+  return typeof field === "string" && field.trim() ? field : null;
+}
+
+function memoryTypeLabel(type: AgentMemoryItem["type"]) {
+  const labels: Record<AgentMemoryItem["type"], string> = {
+    preference: "Preferencia",
+    confirmed_fact: "Dato confirmado",
+    decision: "Decision",
+    open_issue: "Pendiente",
+    task_context: "Tarea",
+  };
+  return labels[type] ?? type;
 }
 
 function formatMetricNumber(value: number | null | undefined, suffix = "") {
@@ -552,6 +522,12 @@ export default function Analizador() {
   const [loadingLabel, setLoadingLabel] = useState<string | null>(null);
   const [activeConversationId, setActiveConversationId] = useState<string>("");
   const [conversations, setConversations] = useState<AdvisorConversation[]>([]);
+  const [conversationSource, setConversationSource] = useState<"api" | "local">("local");
+  const [conversationsLoading, setConversationsLoading] = useState(false);
+  const [messagesLoading, setMessagesLoading] = useState(false);
+  const [memoryItems, setMemoryItems] = useState<AgentMemoryItem[]>([]);
+  const [memoryLoading, setMemoryLoading] = useState(false);
+  const [memoryBusyId, setMemoryBusyId] = useState<string | null>(null);
   const [selectedFiles, setSelectedFiles] = useState<AgentFile[]>([]);
   const [approvingRecommendationId, setApprovingRecommendationId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -574,18 +550,147 @@ export default function Analizador() {
   }, [agente?.id, agente?.nemo, companyName, ultimoMesDisponible]);
 
   const canCallAgent = Boolean(agentRequest && agentConfigured);
+  const usingPersistentConversations = conversationSource === "api";
   const activeConversation = conversations.find((item) => item.id === activeConversationId) ?? conversations[0] ?? null;
 
   useEffect(() => {
-    const loaded = loadConversations(key);
-    const initial = loaded.length ? loaded : [createConversation(companyName, nemo, ultimoMesDisponible)];
-    setConversations(initial);
-    setActiveConversationId(initial[0]?.id ?? "");
-  }, [companyName, key, nemo, ultimoMesDisponible]);
+    let cancelled = false;
+
+    function useLocalFallback() {
+      const loaded = loadConversations(key);
+      const initial = loaded.length ? loaded : [createConversation(companyName, nemo, ultimoMesDisponible)];
+      setConversationSource("local");
+      setConversations(initial);
+      setActiveConversationId(initial[0]?.id ?? "");
+      setMemoryItems([]);
+    }
+
+    async function loadPersistentConversations() {
+      if (!agentRequest || !agentConfigured) {
+        useLocalFallback();
+        return;
+      }
+
+      setConversationsLoading(true);
+      try {
+        const loaded = await listAdvisorConversations({ nemo: agentRequest.nemo });
+        let mapped = loaded.map(mapAgentConversation);
+
+        if (mapped.length === 0) {
+          const created = await createAdvisorConversation({
+            companyId: agentRequest.companyId,
+            companyName: agentRequest.companyName,
+            nemo: agentRequest.nemo,
+            title: "Nueva conversacion",
+          });
+          mapped = [mapAgentConversation(created)];
+        }
+
+        if (!cancelled) {
+          setConversationSource("api");
+          setConversations(mapped);
+          setActiveConversationId(mapped[0]?.id ?? "");
+        }
+      } catch {
+        if (!cancelled) useLocalFallback();
+      } finally {
+        if (!cancelled) setConversationsLoading(false);
+      }
+    }
+
+    void loadPersistentConversations();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [agentConfigured, agentRequest, companyName, key, nemo, ultimoMesDisponible]);
 
   useEffect(() => {
-    if (conversations.length) saveConversations(key, conversations);
-  }, [conversations, key]);
+    if (conversationSource === "local" && conversations.length) saveConversations(key, conversations);
+  }, [conversationSource, conversations, key]);
+
+  useEffect(() => {
+    if (!usingPersistentConversations || !agentRequest || !activeConversation || activeConversation.messagesLoaded) return;
+    let cancelled = false;
+
+    async function loadMessages() {
+      setMessagesLoading(true);
+      try {
+        const output = await getAdvisorConversationMessages({
+          conversationId: activeConversation.id,
+          companyId: agentRequest!.companyId,
+          nemo: agentRequest!.nemo,
+        });
+        if (cancelled) return;
+
+        setConversations((current) =>
+          current.map((conversation) =>
+            conversation.id === activeConversation.id
+              ? {
+                  ...conversation,
+                  title: output.conversation.title,
+                  summary: output.summary,
+                  updatedAt: output.conversation.updatedAt,
+                  messagesLoaded: true,
+                  messages: output.messages.map(mapAgentMessage),
+                }
+              : conversation,
+          ),
+        );
+      } catch {
+        if (!cancelled) {
+          setConversations((current) =>
+            current.map((conversation) =>
+              conversation.id === activeConversation.id
+                ? {
+                    ...conversation,
+                    messagesLoaded: true,
+                    messages: [
+                      {
+                        id: newId("msg"),
+                        role: "assistant",
+                        content: "No pude cargar el historial de esta conversacion. Proba nuevamente en unos minutos.",
+                        createdAt: nowIso(),
+                        status: "error",
+                      },
+                    ],
+                  }
+                : conversation,
+            ),
+          );
+        }
+      } finally {
+        if (!cancelled) setMessagesLoading(false);
+      }
+    }
+
+    void loadMessages();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeConversation, agentRequest, usingPersistentConversations]);
+
+  const refreshMemory = useCallback(async () => {
+    if (!usingPersistentConversations || !agentRequest) {
+      setMemoryItems([]);
+      return;
+    }
+
+    setMemoryLoading(true);
+    try {
+      const memory = await listAdvisorMemory({ nemo: agentRequest.nemo });
+      setMemoryItems(memory);
+    } catch {
+      setMemoryItems([]);
+    } finally {
+      setMemoryLoading(false);
+    }
+  }, [agentRequest, usingPersistentConversations]);
+
+  useEffect(() => {
+    void refreshMemory();
+  }, [refreshMemory]);
 
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -604,11 +709,41 @@ export default function Analizador() {
         ? buildTitleFromMessage(titleSeed)
         : conversation.title,
       updatedAt: nowIso(),
+      messagesLoaded: true,
       messages: [...conversation.messages, ...messages],
     }));
   }
 
-  function startNewConversation() {
+  function replaceMessageId(conversationId: string, oldId: string, newIdValue: string) {
+    updateConversation(conversationId, (conversation) => ({
+      ...conversation,
+      messages: conversation.messages.map((message) =>
+        message.id === oldId ? { ...message, id: newIdValue } : message,
+      ),
+    }));
+  }
+
+  async function startNewConversation() {
+    if (usingPersistentConversations && agentRequest) {
+      setConversationsLoading(true);
+      try {
+        const conversation = await createAdvisorConversation({
+          companyId: agentRequest.companyId,
+          companyName: agentRequest.companyName,
+          nemo: agentRequest.nemo,
+          title: "Nueva conversacion",
+        });
+        const mapped = mapAgentConversation(conversation);
+        setConversations((current) => [mapped, ...current]);
+        setActiveConversationId(mapped.id);
+        return;
+      } catch {
+        setConversationSource("local");
+      } finally {
+        setConversationsLoading(false);
+      }
+    }
+
     const conversation = createConversation(companyName, nemo, ultimoMesDisponible);
     setConversations((current) => [conversation, ...current]);
     setActiveConversationId(conversation.id);
@@ -665,15 +800,31 @@ export default function Analizador() {
     try {
       const response = await request();
       const formatted = format(response);
+      const responseConversationId = readResponseId(response, "conversationId") ?? conversationId;
+      const persistedUserMessageId = readResponseId(response, "messageId");
+      const persistedAssistantMessageId = readResponseId(response, "assistantMessageId");
+
+      if (persistedUserMessageId) {
+        replaceMessageId(conversationId, userMessage.id, persistedUserMessageId);
+      }
+
       appendMessages(conversationId, [
         {
-          id: newId("msg"),
+          id: persistedAssistantMessageId ?? newId("msg"),
           role: "assistant",
           content: formatted,
           createdAt: nowIso(),
           meta: showMeta === false || !shouldStoreAgentMeta(response) ? undefined : response,
         },
       ]);
+
+      if (usingPersistentConversations && responseConversationId !== conversationId) {
+        setActiveConversationId(responseConversationId);
+      }
+
+      if (usingPersistentConversations) {
+        void refreshMemory();
+      }
     } catch (error) {
       appendMessages(conversationId, [
         {
@@ -704,7 +855,12 @@ export default function Analizador() {
       loading: "Pensando...",
       prompt: question || "Adjunto archivo(s)",
       files: filesToUpload,
-      request: () => askEnergyAgent({ ...agentRequest!, question: question || "Analiza los archivos adjuntos", files: filesToUpload }),
+      request: () => askEnergyAgent({
+        ...agentRequest!,
+        conversationId: usingPersistentConversations ? activeConversation.id : undefined,
+        question: question || "Analiza los archivos adjuntos",
+        files: filesToUpload,
+      }),
       format: formatAsk,
     });
   }
@@ -742,6 +898,48 @@ export default function Analizador() {
       }
     } finally {
       setApprovingRecommendationId(null);
+    }
+  }
+
+  async function archiveMemoryItem(item: AgentMemoryItem) {
+    if (!agentRequest) return;
+    setMemoryBusyId(item.id);
+    try {
+      await archiveAdvisorMemory({ memoryId: item.id, nemo: agentRequest.nemo });
+      setMemoryItems((current) => current.filter((memory) => memory.id !== item.id));
+    } catch (error) {
+      if (activeConversation) {
+        appendMessages(activeConversation.id, [{
+          id: newId("msg"),
+          role: "assistant",
+          content: agentErrorMessage(error),
+          createdAt: nowIso(),
+          status: "error",
+        }]);
+      }
+    } finally {
+      setMemoryBusyId(null);
+    }
+  }
+
+  async function deleteMemoryItem(item: AgentMemoryItem) {
+    if (!agentRequest) return;
+    setMemoryBusyId(item.id);
+    try {
+      await deleteAdvisorMemory({ memoryId: item.id, nemo: agentRequest.nemo });
+      setMemoryItems((current) => current.filter((memory) => memory.id !== item.id));
+    } catch (error) {
+      if (activeConversation) {
+        appendMessages(activeConversation.id, [{
+          id: newId("msg"),
+          role: "assistant",
+          content: agentErrorMessage(error),
+          createdAt: nowIso(),
+          status: "error",
+        }]);
+      }
+    } finally {
+      setMemoryBusyId(null);
     }
   }
 
@@ -783,45 +981,22 @@ export default function Analizador() {
     const config = ACTIONS.find((item) => item.id === action);
     if (!config) return;
 
-    if (action === "analyze") {
-      await runRequest({
-        conversationId: activeConversation.id,
-        loading: "Analizando periodo...",
-        prompt: config.prompt,
-        request: () => analyzePeriodWithAgent(agentRequest!),
-        format: formatAnalysis,
-      });
-      return;
-    }
-
-    if (action === "plan") {
-      await runRequest({
-        conversationId: activeConversation.id,
-        loading: "Generando plan...",
-        prompt: config.prompt,
-        request: () => generateAgentActionPlan(agentRequest!),
-        format: formatActionPlan,
-      });
-      return;
-    }
-
-    if (action === "report") {
-      await runRequest({
-        conversationId: activeConversation.id,
-        loading: "Generando reporte...",
-        prompt: config.prompt,
-        request: () => generateAgentReport(agentRequest!),
-        format: formatReport,
-      });
-      return;
-    }
-
     await runRequest({
       conversationId: activeConversation.id,
-      loading: "Conciliando...",
+      loading: action === "analyze"
+        ? "Analizando periodo..."
+        : action === "plan"
+          ? "Generando plan..."
+          : action === "report"
+            ? "Generando reporte..."
+            : "Conciliando...",
       prompt: config.prompt,
-      request: () => reconcileInvoice(agentRequest!),
-      format: formatReconcile,
+      request: () => askEnergyAgent({
+        ...agentRequest!,
+        conversationId: usingPersistentConversations ? activeConversation.id : undefined,
+        question: config.prompt,
+      }),
+      format: formatAsk,
     });
   }
 
@@ -854,6 +1029,29 @@ export default function Analizador() {
 
           <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6">
             <div className="mx-auto flex max-w-3xl flex-col gap-4">
+              {messagesLoading ? (
+                <div className="flex justify-start">
+                  <div className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600 shadow-sm">
+                    <Loader2 className="animate-spin text-[#15caca]" size={16} />
+                    Cargando historial...
+                  </div>
+                </div>
+              ) : null}
+
+              {!messagesLoading && activeConversation && activeConversation.messages.length === 0 ? (
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 text-sm text-slate-600 shadow-sm">
+                  <div className="font-semibold text-[#163759]">Listo para trabajar con {companyName || "esta empresa"}.</div>
+                  <div className="mt-1 text-xs text-slate-500">Escribi una consulta o elegi una accion del panel inferior.</div>
+                </div>
+              ) : null}
+
+              {!messagesLoading && activeConversation?.summary ? (
+                <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs leading-relaxed text-slate-600 shadow-sm">
+                  <span className="font-semibold text-[#163759]">Resumen previo: </span>
+                  {activeConversation.summary}
+                </div>
+              ) : null}
+
               {activeConversation?.messages.map((message) => (
                 <MessageBubble
                   approvingId={approvingRecommendationId}
@@ -896,7 +1094,7 @@ export default function Analizador() {
                 })}
               </div>
 
-              {activeConversation?.messages.length === 1 ? (
+              {activeConversation && activeConversation.messages.length <= 1 ? (
                 <div className="mb-3 grid gap-2 sm:grid-cols-2">
                   {SUGGESTED_PROMPTS.map((prompt) => (
                     <button
@@ -980,11 +1178,12 @@ export default function Analizador() {
           <aside className="hidden w-72 shrink-0 border-l border-slate-200 bg-slate-50/80 p-3 lg:flex lg:flex-col">
             <div className="mb-3 flex gap-2">
               <button
-                className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-[#15caca] hover:text-[#163759]"
-                onClick={startNewConversation}
+                className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-[#15caca] hover:text-[#163759] disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={conversationsLoading}
+                onClick={() => void startNewConversation()}
                 type="button"
               >
-                <MessageSquarePlus size={17} />
+                {conversationsLoading ? <Loader2 className="animate-spin" size={17} /> : <MessageSquarePlus size={17} />}
                 Nueva conversacion
               </button>
               <button
@@ -995,6 +1194,62 @@ export default function Analizador() {
               >
                 <PanelRightClose size={17} />
               </button>
+            </div>
+
+            <div className="mb-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500 shadow-sm">
+              <div className="flex items-center gap-2 font-semibold text-slate-600">
+                <Database size={14} className={usingPersistentConversations ? "text-[#15caca]" : "text-amber-500"} />
+                {usingPersistentConversations ? "Historial sincronizado" : "Modo local temporal"}
+              </div>
+              <div className="mt-1 truncate">{companyName || "Sin empresa"} {nemo ? `- ${nemo}` : ""}</div>
+            </div>
+
+            <div className="mb-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <div className="text-xs font-bold uppercase tracking-wide text-slate-500">Memoria</div>
+                {memoryLoading ? <Loader2 className="animate-spin text-[#15caca]" size={14} /> : null}
+              </div>
+
+              {memoryItems.length > 0 ? (
+                <div className="max-h-52 space-y-2 overflow-y-auto pr-1">
+                  {memoryItems.slice(0, 8).map((item) => (
+                    <div key={item.id} className="rounded-lg border border-slate-100 bg-slate-50 px-2.5 py-2">
+                      <div className="mb-1 flex items-start justify-between gap-2">
+                        <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-500">
+                          {memoryTypeLabel(item.type)}
+                        </span>
+                        <div className="flex shrink-0 gap-1">
+                          <button
+                            aria-label="Archivar memoria"
+                            className="rounded-md p-1 text-slate-400 transition hover:bg-white hover:text-[#163759] disabled:cursor-not-allowed disabled:opacity-50"
+                            disabled={memoryBusyId === item.id}
+                            onClick={() => void archiveMemoryItem(item)}
+                            title="Archivar memoria"
+                            type="button"
+                          >
+                            <Archive size={13} />
+                          </button>
+                          <button
+                            aria-label="Borrar memoria"
+                            className="rounded-md p-1 text-slate-400 transition hover:bg-white hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50"
+                            disabled={memoryBusyId === item.id}
+                            onClick={() => void deleteMemoryItem(item)}
+                            title="Borrar memoria"
+                            type="button"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      </div>
+                      <p className="line-clamp-3 text-xs leading-relaxed text-slate-600">{item.content}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-lg bg-slate-50 px-2.5 py-2 text-xs text-slate-500">
+                  {usingPersistentConversations ? "Sin memoria guardada todavia." : "Disponible cuando el historial este sincronizado."}
+                </div>
+              )}
             </div>
 
             <div className="min-h-0 flex-1 space-y-1 overflow-y-auto">

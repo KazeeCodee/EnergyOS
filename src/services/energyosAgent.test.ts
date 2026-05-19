@@ -1,6 +1,7 @@
 import {
   buildAgentEndpoint,
   buildAgentHeaders,
+  buildAgentUrl,
   getAgentHttpErrorMessage,
   hasEnergyosAgentConfig,
 } from "./energyosAgent.ts";
@@ -29,6 +30,33 @@ assertEqual(
   buildAgentEndpoint("http://localhost:3100/", "/advisor/tasks/approve"),
   "http://localhost:3100/advisor/tasks/approve",
   "advisor task endpoint builder should support v2 routes",
+);
+
+assertEqual(
+  buildAgentEndpoint("http://localhost:3100/", "/advisor/chat"),
+  "http://localhost:3100/advisor/chat",
+  "advisor chat endpoint builder should support persistent chat route",
+);
+
+assertEqual(
+  buildAgentUrl("http://localhost:3100/", "/advisor/conversations", { nemo: "ACINVCSZ" }),
+  "http://localhost:3100/advisor/conversations?nemo=ACINVCSZ",
+  "advisor conversations endpoint should support query params",
+);
+
+assertEqual(
+  buildAgentUrl("http://localhost:3100/", "/advisor/conversations/abc/messages", {
+    companyId: "company-1",
+    nemo: "ACINVCSZ",
+  }),
+  "http://localhost:3100/advisor/conversations/abc/messages?companyId=company-1&nemo=ACINVCSZ",
+  "advisor messages endpoint should support scoped query params",
+);
+
+assertEqual(
+  buildAgentUrl("http://localhost:3100/", "/advisor/memory/mem-1", { nemo: "ACINVCSZ" }),
+  "http://localhost:3100/advisor/memory/mem-1?nemo=ACINVCSZ",
+  "advisor memory endpoint should support item routes",
 );
 
 assertEqual(

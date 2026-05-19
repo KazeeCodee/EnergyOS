@@ -5,6 +5,12 @@ import type {
   AgentBaseRequest,
   AgentApproveTaskInput,
   AgentApproveTaskOutput,
+  AgentConversation,
+  AgentConversationCreateInput,
+  AgentConversationMessagesOutput,
+  AgentConversationScopeInput,
+  AgentConversationUpdateInput,
+  AgentMemoryItem,
   AgentQuestionRequest,
   AgentReconcileInvoiceOutput,
   AgentReportOutput,
@@ -16,7 +22,16 @@ type AgentEndpoint =
   | "/agent/generate-report"
   | "/agent/generate-action-plan"
   | "/agent/reconcile-invoice"
+  | "/advisor/chat"
+  | "/advisor/conversations"
+  | `/advisor/conversations/${string}`
+  | `/advisor/conversations/${string}/messages`
+  | "/advisor/memory"
+  | `/advisor/memory/${string}`
   | "/advisor/tasks/approve";
+
+type HttpMethod = "GET" | "POST" | "PATCH" | "DELETE";
+type QueryParams = Record<string, string | number | boolean | null | undefined>;
 
 type AgentImportMeta = ImportMeta & {
   env?: {
@@ -49,6 +64,21 @@ export function buildAgentEndpoint(baseUrl: string, endpoint: AgentEndpoint): st
   const cleanBaseUrl = baseUrl.replace(/\/+$/, "");
   const cleanEndpoint = endpoint.replace(/^\/+/, "");
   return `${cleanBaseUrl}/${cleanEndpoint}`;
+}
+
+export function buildAgentUrl(baseUrl: string, endpoint: AgentEndpoint, query?: QueryParams): string {
+  const url = buildAgentEndpoint(baseUrl, endpoint);
+  if (!query) return url;
+
+  const params = new URLSearchParams();
+  Object.entries(query).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") {
+      params.set(key, String(value));
+    }
+  });
+
+  const queryString = params.toString();
+  return queryString ? `${url}?${queryString}` : url;
 }
 
 export function buildAgentHeaders(accessToken: string): Record<string, string> {
@@ -128,14 +158,19 @@ async function getSupabaseAccessToken(): Promise<string> {
   return token;
 }
 
-function withPrivateContext(input: AgentBaseRequest): AgentBaseRequest {
+function withPrivateContext<T extends AgentBaseRequest>(input: T): T & { includePrivateContext: boolean } {
   return {
     ...input,
     includePrivateContext: input.includePrivateContext ?? true,
   };
 }
 
-async function requestAgent<T>(endpoint: AgentEndpoint, payload: unknown): Promise<T> {
+async function requestAgentJson<T>(
+  method: HttpMethod,
+  endpoint: AgentEndpoint,
+  payload?: unknown,
+  query?: QueryParams,
+): Promise<T> {
   const baseUrl = getEnergyosAgentBaseUrl();
 
   if (!hasEnergyosAgentConfig(baseUrl)) {
@@ -149,10 +184,10 @@ async function requestAgent<T>(endpoint: AgentEndpoint, payload: unknown): Promi
   let response: Response;
 
   try {
-    response = await fetch(buildAgentEndpoint(baseUrl, endpoint), {
-      method: "POST",
+    response = await fetch(buildAgentUrl(baseUrl, endpoint, query), {
+      method,
       headers: buildAgentHeaders(accessToken),
-      body: JSON.stringify(payload),
+      body: payload === undefined ? undefined : JSON.stringify(payload),
     });
   } catch {
     throw new EnergyosAgentError(
@@ -174,12 +209,16 @@ async function requestAgent<T>(endpoint: AgentEndpoint, payload: unknown): Promi
   return body as T;
 }
 
+async function requestAgent<T>(endpoint: AgentEndpoint, payload: unknown): Promise<T> {
+  return requestAgentJson<T>("POST", endpoint, payload);
+}
+
 export function analyzePeriodWithAgent(input: AgentBaseRequest): Promise<AgentAnalysisOutput> {
   return requestAgent<AgentAnalysisOutput>("/agent/analyze-period", withPrivateContext(input));
 }
 
 export function askEnergyAgent(input: AgentQuestionRequest): Promise<AgentAskOutput> {
-  return requestAgent<AgentAskOutput>("/agent/ask", withPrivateContext(input));
+  return requestAgent<AgentAskOutput>("/advisor/chat", withPrivateContext(input));
 }
 
 export function generateAgentReport(input: AgentBaseRequest): Promise<AgentReportOutput> {
@@ -196,4 +235,84 @@ export function reconcileInvoice(input: AgentBaseRequest): Promise<AgentReconcil
 
 export function approveAdvisorTask(input: AgentApproveTaskInput): Promise<AgentApproveTaskOutput> {
   return requestAgent<AgentApproveTaskOutput>("/advisor/tasks/approve", input);
+}
+
+export async function listAdvisorConversations(input: { nemo: string }): Promise<AgentConversation[]> {
+  const output = await requestAgentJson<{ conversations: AgentConversation[] }>(
+    "GET",
+    "/advisor/conversations",
+    undefined,
+    { nemo: input.nemo },
+  );
+  return output.conversations;
+}
+
+export async function createAdvisorConversation(input: AgentConversationCreateInput): Promise<AgentConversation> {
+  const output = await requestAgentJson<{ conversation: AgentConversation }>(
+    "POST",
+    "/advisor/conversations",
+    input,
+  );
+  return output.conversation;
+}
+
+export function getAdvisorConversationMessages(
+  input: AgentConversationScopeInput,
+): Promise<AgentConversationMessagesOutput> {
+  return requestAgentJson<AgentConversationMessagesOutput>(
+    "GET",
+    `/advisor/conversations/${input.conversationId}/messages`,
+    undefined,
+    {
+      companyId: input.companyId,
+      nemo: input.nemo,
+    },
+  );
+}
+
+export function updateAdvisorConversation(input: AgentConversationUpdateInput): Promise<{ ok: boolean }> {
+  const { conversationId, ...payload } = input;
+  return requestAgentJson<{ ok: boolean }>("PATCH", `/advisor/conversations/${conversationId}`, payload);
+}
+
+export function deleteAdvisorConversation(input: AgentConversationScopeInput): Promise<{ ok: boolean }> {
+  return requestAgentJson<{ ok: boolean }>(
+    "DELETE",
+    `/advisor/conversations/${input.conversationId}`,
+    undefined,
+    {
+      companyId: input.companyId,
+      nemo: input.nemo,
+    },
+  );
+}
+
+export async function listAdvisorMemory(input: { nemo: string }): Promise<AgentMemoryItem[]> {
+  const output = await requestAgentJson<{ memory: AgentMemoryItem[] }>(
+    "GET",
+    "/advisor/memory",
+    undefined,
+    { nemo: input.nemo },
+  );
+  return output.memory;
+}
+
+export function archiveAdvisorMemory(input: { memoryId: string; nemo: string }): Promise<{ ok: boolean }> {
+  return requestAgentJson<{ ok: boolean }>(
+    "PATCH",
+    `/advisor/memory/${input.memoryId}`,
+    {
+      nemo: input.nemo,
+      status: "archived",
+    },
+  );
+}
+
+export function deleteAdvisorMemory(input: { memoryId: string; nemo: string }): Promise<{ ok: boolean }> {
+  return requestAgentJson<{ ok: boolean }>(
+    "DELETE",
+    `/advisor/memory/${input.memoryId}`,
+    undefined,
+    { nemo: input.nemo },
+  );
 }

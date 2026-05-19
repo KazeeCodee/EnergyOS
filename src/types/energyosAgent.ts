@@ -20,6 +20,7 @@ export type AgentFile = {
 
 export type AgentQuestionRequest = AgentBaseRequest & {
   question: string;
+  conversationId?: string;
   files?: AgentFile[];
 };
 
@@ -71,8 +72,13 @@ export type AgentFileAnalysis = {
 export type AgentAdvisorRunOutput = {
   response: string;
   intent: string;
+  companyId?: string;
+  companyName?: string;
   nemo: string;
   period: string | null;
+  conversationId?: string;
+  messageId?: string;
+  assistantMessageId?: string;
   metrics?: AgentAdvisorMetrics;
   findings?: AgentFinding[];
   recommendations?: AgentRecommendation[];
@@ -163,6 +169,10 @@ export type AgentAskOutput = {
   answer?: string;
   response?: string;
   summary?: string;
+  conversationId?: string;
+  messageId?: string;
+  assistantMessageId?: string;
+  intent?: string;
   advisor?: AgentAdvisorRunOutput;
   findings?: AgentFinding[];
   recommendations?: AgentRecommendation[];
@@ -170,6 +180,80 @@ export type AgentAskOutput = {
   limitations?: string[];
   evidence?: Record<string, unknown>[];
   [key: string]: unknown;
+};
+
+export type AgentConversationStatus = "active" | "archived" | "deleted";
+
+export type AgentConversation = {
+  id: string;
+  companyId: string;
+  nemo: string;
+  title: string;
+  status: AgentConversationStatus;
+  summary: string | null;
+  lastMessageAt: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AgentConversationCreateInput = {
+  companyId: string;
+  companyName?: string;
+  nemo: string;
+  title?: string;
+};
+
+export type AgentConversationUpdateInput = {
+  conversationId: string;
+  companyId: string;
+  nemo: string;
+  title?: string;
+  status?: "active" | "archived";
+};
+
+export type AgentConversationScopeInput = {
+  conversationId: string;
+  companyId: string;
+  nemo: string;
+};
+
+export type AgentMessage = {
+  id: string;
+  conversationId: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  intent: string | null;
+  metadata?: Record<string, unknown>;
+  runId?: string | null;
+  createdAt: string;
+};
+
+export type AgentConversationMessagesOutput = {
+  conversation: AgentConversation;
+  messages: AgentMessage[];
+  summary: string | null;
+};
+
+export type AgentMemoryScope = "user" | "nemo" | "conversation";
+export type AgentMemoryType = "preference" | "confirmed_fact" | "decision" | "open_issue" | "task_context";
+export type AgentMemoryConfidence = "low" | "medium" | "high";
+export type AgentMemoryStatus = "active" | "archived" | "deleted";
+
+export type AgentMemoryItem = {
+  id: string;
+  scope: AgentMemoryScope;
+  userId?: string;
+  companyId?: string | null;
+  nemo?: string | null;
+  conversationId?: string | null;
+  type: AgentMemoryType;
+  content: string;
+  confidence: AgentMemoryConfidence;
+  sourceMessageId?: string | null;
+  evidence?: Record<string, unknown>;
+  status?: AgentMemoryStatus;
+  createdAt?: string;
+  updatedAt?: string;
 };
 
 export type AgentApproveTaskInput = {
