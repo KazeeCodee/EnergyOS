@@ -18,6 +18,14 @@ export type AgentFile = {
   content: string;
 };
 
+export type AgentAdvisorRuntime = {
+  responseSource: "llm" | "deterministic_fallback";
+  provider: "gemini" | "openai" | "anthropic" | "energyos" | null;
+  model: string | null;
+  fallbackReason: string | null;
+  routerSource: "llm" | "deterministic";
+};
+
 export type AgentQuestionRequest = AgentBaseRequest & {
   question: string;
   conversationId?: string;
@@ -92,6 +100,7 @@ export type AgentAdvisorRunOutput = {
     passed: boolean;
     issues: string[];
   };
+  runtime?: AgentAdvisorRuntime;
 };
 
 export type AgentPrivateContextSummary = {
